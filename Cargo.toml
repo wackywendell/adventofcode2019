@@ -5,7 +5,18 @@ name = "adventofcode2019"
 version = "0.1.0"
 
 [dependencies]
+failure = "0.1.6"
 log = "0.4.8"
+env_logger = "0.7.1"
+clap = "2.33.0"
 
 [dev-dependencies]
 test-env-log = "0.2.2"
+
+[[bin]]
+name = "day1"
+path = "src/day1/main.rs"
+
+[[bin]]
+name = "day2"
+path = "src/day2/main.rs"
