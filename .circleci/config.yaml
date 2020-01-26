@@ -3,7 +3,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/rust
+      - image: circleci/rust:latest
 
     environment:
       # Set your codecov token if your repository is private.
