@@ -5,6 +5,10 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
+pub fn cost(mass: i64) -> i64 {
+    (mass / 3) - 2
+}
+
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
 
@@ -29,4 +33,19 @@ fn main() -> Result<(), failure::Error> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use test_env_log::test;
+
+    use super::*;
+
+    #[test]
+    fn test_cost() {
+        assert_eq!(cost(12), 2);
+        assert_eq!(cost(14), 2);
+        assert_eq!(cost(1969), 654);
+        assert_eq!(cost(100756), 33583);
+    }
 }

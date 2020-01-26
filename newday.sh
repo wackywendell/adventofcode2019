@@ -54,6 +54,13 @@ fn main() -> Result<(), failure::Error> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    // use test_env_log::test;
+
+    // use super::*;
+}
 EOF
 
     cat >>Cargo.toml <<EOF
