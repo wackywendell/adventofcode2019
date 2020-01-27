@@ -19,21 +19,16 @@ jobs:
           command: |
             rustfmt --version
             cargo fmt -- --check
-      - run:
-          name: Nightly Build
-          command: |
-            rustup run nightly rustc --version --verbose
-            rustup run nightly cargo --version --verbose
-            rustup run nightly cargo build
+
       - run:
           name: Stable Build
           command: |
-            rustup run stable rustc --version --verbose
-            rustup run stable cargo --version --verbose
-            rustup run stable cargo build
+            rustc --version --verbose
+            cargo --version --verbose
+            cargo build
       - run:
           name: Test
-          command: rustup run stable cargo test
+          command: cargo test
       # - run:
       #     name: Upload Coverage
       #     command: ./scripts/codecov.sh
