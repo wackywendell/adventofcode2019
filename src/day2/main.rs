@@ -195,7 +195,7 @@ impl FromStr for Intcodes {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let pieces = s.trim().split(",");
+        let pieces = s.trim().split(',');
 
         let v: Result<Vec<Value>, ParseIntError> = pieces.map(str::parse).collect();
 
@@ -239,7 +239,7 @@ fn main() -> Result<(), failure::Error> {
             cp.values[2] = ix2 as Value;
             cp.run()?;
 
-            if cp.values[0] == 19690720 {
+            if cp.values[0] == 19_690_720 {
                 found = Some((ix1, ix2));
                 break;
             }

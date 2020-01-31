@@ -106,7 +106,7 @@ impl FromStr for Sections {
     type Err = SectionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let pieces = s.trim().split(",");
+        let pieces = s.trim().split(',');
 
         let v: Result<Vec<Section>, SectionError> = pieces.map(str::parse).collect();
 
@@ -137,8 +137,6 @@ impl Piece {
         };
 
         let (start, end) = (n0, n0 + dist);
-
-        // log::debug!("{}, {:?}, {}", start, section, wire);
 
         Piece {
             direction,
@@ -191,7 +189,7 @@ impl Piece {
 
 pub struct Wires {
     pieces: Vec<Piece>,
-    wires: Vec<Sections>,
+    _wires: Vec<Sections>,
 }
 
 impl Wires {
@@ -213,19 +211,20 @@ impl Wires {
                 );
                 loc = loc + sec;
                 let Section(_, sd) = sec;
-                dist = dist + sd.abs();
+                dist += sd.abs();
             }
         }
 
         pieces.sort();
 
-        Wires { wires, pieces }
+        Wires {
+            _wires: wires,
+            pieces,
+        }
     }
 
     pub fn intersections(&self) -> Vec<(Piece, Piece)> {
         let mut pairs = Vec::new();
-
-        // log::debug!("pieces: {:?}", &self.pieces);
 
         if self.pieces.is_empty() {
             return vec![];
@@ -323,7 +322,6 @@ impl Wires {
             );
         }
 
-        // TODO need to include distance along each of the intersecting segments
         let points = inters.iter().filter_map(|op| {
             (op.0.intersection(op.1).map(|p| {
                 (
