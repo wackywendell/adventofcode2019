@@ -1,6 +1,52 @@
 use clap::{App, Arg};
 use log::debug;
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Password {
+    digits: Vec<u8>,
+}
+
+impl Password {
+    pub fn from_number(n: i64) -> Password {
+        let mut digits = Vec::new();
+        let mut m = n;
+        while m > 0 {
+            digits.push((m % 10) as u8);
+            m /= 10;
+        }
+
+        digits.reverse();
+
+        Password { digits }
+    }
+
+    pub fn valid(&self) -> bool {
+        log::debug!("Testing validity of {:?}", self.digits);
+        if self.digits.len() != 6 {
+            log::debug!("  FAIL: Length {} != 6", self.digits.len());
+            return false;
+        }
+
+        let mut repeats = false;
+        for (l, n) in self.digits.iter().zip(&self.digits[1..]) {
+            match n.cmp(l) {
+                std::cmp::Ordering::Less => {
+                    log::debug!("  FAIL: Out of order {} < {}", n, l);
+                    return false;
+                }
+                std::cmp::Ordering::Equal => repeats = true,
+                std::cmp::Ordering::Greater => {}
+            }
+        }
+
+        if !repeats {
+            log::debug!("  FAIL: No repeats");
+        }
+
+        repeats
+    }
+}
+
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
 
@@ -41,7 +87,24 @@ fn main() -> Result<(), failure::Error> {
 
 #[cfg(test)]
 mod tests {
-    // use test_env_log::test;
+    use test_env_log::test;
 
-    // use super::*;
+    use super::*;
+
+    #[test]
+    fn test_validity() {
+        // Decreasing
+        assert!(!Password::from_number(124_435).valid());
+        // No repeat
+        assert!(!Password::from_number(124_589).valid());
+
+        // valid
+        assert!(Password::from_number(122_345).valid());
+        assert!(Password::from_number(135_669).valid());
+
+        // From assignment
+        assert!(Password::from_number(111_111).valid());
+        assert!(!Password::from_number(223_450).valid());
+        assert!(!Password::from_number(123_789).valid());
+    }
 }
