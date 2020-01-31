@@ -115,16 +115,18 @@ impl FromStr for Sections {
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct Piece {
+pub struct Piece {
     direction: Direction,
     line: Val,
     start: Val,
     end: Val,
     wire: usize,
+    // Length so far
+    length: Val,
 }
 
 impl Piece {
-    fn new(start: Point, section: Section, wire: usize) -> Self {
+    fn new(start: Point, section: Section, wire: usize, length: Val) -> Self {
         let Point(x, y) = start;
         let Section(direction, dist) = section;
 
@@ -134,11 +136,7 @@ impl Piece {
             (y, x)
         };
 
-        let (start, end) = if dist < 0 {
-            (n0 + dist, n0)
-        } else {
-            (n0, n0 + dist)
-        };
+        let (start, end) = (n0, n0 + dist);
 
         // log::debug!("{}, {:?}, {}", start, section, wire);
 
@@ -148,7 +146,39 @@ impl Piece {
             start,
             end,
             wire,
+            length,
         }
+    }
+
+    fn lowest(self) -> Val {
+        if self.start < self.end {
+            self.start
+        } else {
+            self.end
+        }
+    }
+
+    fn highest(self) -> Val {
+        if self.start < self.end {
+            self.end
+        } else {
+            self.start
+        }
+    }
+
+    fn intersection(self, other: Self) -> Option<Point> {
+        if self.line < other.lowest() || self.line > other.highest() {
+            return None;
+        }
+        if other.line < self.lowest() || other.line > self.highest() {
+            return None;
+        }
+
+        Some(if self.direction == Direction::Vertical {
+            Point(self.line, other.line)
+        } else {
+            Point(other.line, self.line)
+        })
     }
 
     fn points(self) -> (Point, Point) {
@@ -170,10 +200,20 @@ impl Wires {
 
         for (wix, Sections(v)) in wires.iter().enumerate() {
             let mut loc = Point(0, 0);
+            let mut dist = 0;
             for &sec in v {
-                let piece = Piece::new(loc, sec, wix);
+                let piece = Piece::new(loc, sec, wix, dist);
                 pieces.push(piece);
+                log::debug!(
+                    "Pushing piece {:?} -> {:?}, {}: {:?}",
+                    piece.points().0,
+                    piece.points().1,
+                    dist,
+                    piece,
+                );
                 loc = loc + sec;
+                let Section(_, sd) = sec;
+                dist = dist + sd.abs();
             }
         }
 
@@ -182,29 +222,13 @@ impl Wires {
         Wires { wires, pieces }
     }
 
-    pub fn shortest_intersection(&self) -> Option<Point> {
-        let mut shortest: Option<Point> = None;
-
-        let mut found = |p: Point| {
-            if p == Point(0, 0) {
-                return;
-            }
-            let s = match shortest {
-                None => {
-                    shortest = Some(p);
-                    return;
-                }
-                Some(s) => s,
-            };
-            if p.manhattan() < s.manhattan() {
-                shortest = Some(p);
-            }
-        };
+    pub fn intersections(&self) -> Vec<(Piece, Piece)> {
+        let mut pairs = Vec::new();
 
         // log::debug!("pieces: {:?}", &self.pieces);
 
         if self.pieces.is_empty() {
-            return None;
+            return vec![];
         }
 
         let d = self.pieces[0].direction;
@@ -217,13 +241,14 @@ impl Wires {
         };
 
         if split >= self.pieces.len() {
-            return None;
+            return vec![];
         }
 
         let (sec1, sec2) = self.pieces.split_at(split);
 
-        for p in sec1 {
-            let start_res = sec2.binary_search_by_key(&(p.start, p.line), |p2| (p2.line, p2.start));
+        for &p in sec1 {
+            let start_res =
+                sec2.binary_search_by_key(&(p.lowest(), p.line), |p2| (p2.line, p2.lowest()));
             let start_ix = match start_res {
                 Ok(ix) => ix,
                 Err(ix) => ix,
@@ -231,13 +256,12 @@ impl Wires {
             if start_ix >= sec2.len() {
                 continue;
             }
-            // p2.line >= p.start
 
-            for p2 in &sec2[start_ix..] {
-                if p2.start > p.line || p2.end < p.line {
+            for &p2 in &sec2[start_ix..] {
+                if p2.lowest() > p.line || p2.highest() < p.line {
                     continue;
                 }
-                if p2.line > p.end {
+                if p2.line > p.highest() {
                     break;
                 }
 
@@ -262,13 +286,56 @@ impl Wires {
                         intersec
                     );
                     log::debug!("    {:?} - {:?}", p.points(), p2.points());
+                    continue;
                 }
 
-                found(intersec)
+                pairs.push((p, p2));
             }
         }
 
-        shortest
+        pairs
+    }
+
+    pub fn shortest_intersection(&self) -> Option<(Val, Point)> {
+        let inters = self.intersections();
+        let points = inters.iter().filter_map(|op| (op.0.intersection(op.1)));
+        points.map(|p| (p.manhattan(), p)).min()
+    }
+
+    pub fn fastest_intersection(&self) -> Option<(Val, Point)> {
+        let mut inters = self.intersections();
+
+        let f = |p0: Piece, p1: Piece| {
+            p0.length + p1.length + (p1.line - p0.start).abs() + (p0.line - p1.start).abs()
+        };
+
+        inters.sort_by_key(|&(p0, p1)| f(p0, p1));
+        for (n, &(p0, p1)) in inters.iter().enumerate().take(5) {
+            log::debug!(
+                "{} ({}): {:?}, {:?}; lengths sum {}, dists {}, {}",
+                n,
+                f(p0, p1),
+                p0,
+                p1,
+                p0.length + p1.length,
+                p0.line - p1.start,
+                p1.line - p0.start
+            );
+        }
+
+        // TODO need to include distance along each of the intersecting segments
+        let points = inters.iter().filter_map(|op| {
+            (op.0.intersection(op.1).map(|p| {
+                (
+                    op.0.length
+                        + op.1.length
+                        + (op.1.line - op.0.start).abs()
+                        + (op.0.line - op.1.start).abs(),
+                    p,
+                )
+            }))
+        });
+        points.min()
     }
 }
 
@@ -294,10 +361,11 @@ fn main() -> Result<(), failure::Error> {
     let parsed: Vec<Sections> = parse_err_iter(buf_reader.lines())?;
     let wires = Wires::new(parsed);
 
-    let p = wires.shortest_intersection().unwrap();
-    let Point(x, y) = p;
+    let (dist, Point(x, y)) = wires.shortest_intersection().unwrap();
+    println!("Shortest: ({}, {}) -> {}", x, y, dist);
 
-    println!("Shortest: ({}, {}) -> {}", x, y, p.manhattan());
+    let (dist, Point(x, y)) = wires.fastest_intersection().unwrap();
+    println!("Fastest: ({}, {}) -> {}", x, y, dist);
 
     Ok(())
 }
@@ -336,6 +404,7 @@ mod tests {
                 start: 0,
                 end: 8,
                 wire: 0,
+                length: 0,
             },
             Piece {
                 direction: Direction::Vertical,
@@ -343,20 +412,23 @@ mod tests {
                 start: 0,
                 end: 5,
                 wire: 0,
+                length: 8,
             },
             Piece {
                 direction: Direction::Horizontal,
                 line: 5,
-                start: 3,
-                end: 8,
+                start: 8,
+                end: 3,
                 wire: 0,
+                length: 13,
             },
             Piece {
                 direction: Direction::Vertical,
                 line: 3,
-                start: 2,
-                end: 5,
+                start: 5,
+                end: 2,
                 wire: 0,
+                length: 18,
             },
             // U7,R6,D4,L4
             Piece {
@@ -365,6 +437,7 @@ mod tests {
                 start: 0,
                 end: 7,
                 wire: 1,
+                length: 0,
             },
             Piece {
                 direction: Direction::Horizontal,
@@ -372,29 +445,38 @@ mod tests {
                 start: 0,
                 end: 6,
                 wire: 1,
+                length: 7,
             },
             Piece {
                 direction: Direction::Vertical,
                 line: 6,
-                start: 3,
-                end: 7,
+                start: 7,
+                end: 3,
                 wire: 1,
+                length: 13,
             },
             Piece {
                 direction: Direction::Horizontal,
                 line: 3,
-                start: 2,
-                end: 6,
+                start: 6,
+                end: 2,
                 wire: 1,
+                length: 17,
             },
         ];
 
+        assert_eq!(wires.pieces.len(), pieces.len());
+
         pieces.sort();
+
+        for (i, (&p0, &p1)) in pieces.iter().zip(&wires.pieces).enumerate() {
+            assert_eq!((i, p0), (i, p1));
+        }
 
         assert_eq!(wires.pieces, pieces);
 
         let i = wires.shortest_intersection();
-        assert_eq!(i, Some(Point(3, 3)));
+        assert_eq!(i, Some((6, Point(3, 3))));
 
         Ok(())
     }
@@ -405,15 +487,41 @@ mod tests {
             Sections::from_str("R75,D30,R83,U83,L12,D49,R71,U7,L72")?,
             Sections::from_str("U62,R66,U55,R34,D71,R55,D58,R83")?,
         ]);
-        let s = wires.shortest_intersection().map(|p| p.manhattan());
+        let s = wires.shortest_intersection().map(|p| p.0);
         assert_eq!(s, Some(159));
 
         let wires = Wires::new(vec![
             Sections::from_str("R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51")?,
             Sections::from_str("U98,R91,D20,R16,D67,R40,U7,R15,U6,R7")?,
         ]);
-        let s = wires.shortest_intersection().map(|p| p.manhattan());
+        let s = wires.shortest_intersection().map(|p| p.0);
         assert_eq!(s, Some(135));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_fastest() -> Result<(), failure::Error> {
+        let wires = Wires::new(vec![
+            Sections::from_str("R8,U5,L5,D3")?,
+            Sections::from_str("U7,R6,D4,L4")?,
+        ]);
+        let s = wires.fastest_intersection().map(|p| p.0);
+        assert_eq!(s, Some(30));
+
+        let wires = Wires::new(vec![
+            Sections::from_str("R75,D30,R83,U83,L12,D49,R71,U7,L72")?,
+            Sections::from_str("U62,R66,U55,R34,D71,R55,D58,R83")?,
+        ]);
+        let s = wires.fastest_intersection().map(|p| p.0);
+        assert_eq!(s, Some(610));
+
+        let wires = Wires::new(vec![
+            Sections::from_str("R98,U47,R26,D63,R33,U87,L62,D20,R33,U53,R51")?,
+            Sections::from_str("U98,R91,D20,R16,D67,R40,U7,R15,U6,R7")?,
+        ]);
+        let s = wires.fastest_intersection().map(|p| p.0);
+        assert_eq!(s, Some(410));
 
         Ok(())
     }
