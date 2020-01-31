@@ -279,7 +279,7 @@ mod tests {
             vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50]
         );
 
-        cp = Intcodes::new(start.clone());
+        cp = Intcodes::new(start);
         cp.run()?;
         assert_eq!(
             cp.values,

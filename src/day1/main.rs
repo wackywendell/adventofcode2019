@@ -69,13 +69,13 @@ mod tests {
         assert_eq!(cost(12), 2);
         assert_eq!(cost(14), 2);
         assert_eq!(cost(1969), 654);
-        assert_eq!(cost(100756), 33583);
+        assert_eq!(cost(100_756), 33583);
     }
 
     #[test]
     fn test_iterative_cost() {
         assert_eq!(iterative_cost(14), 2);
         assert_eq!(iterative_cost(1969), 966);
-        assert_eq!(iterative_cost(100756), 50346);
+        assert_eq!(iterative_cost(100_756), 50346);
     }
 }
