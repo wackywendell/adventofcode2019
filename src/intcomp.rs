@@ -95,8 +95,8 @@ impl TryFrom<Value> for Instruction {
 
         fn mode_from_num(n: Value) -> Option<Mode> {
             match n {
-                0 => Some(Mode::Immediate),
-                1 => Some(Mode::Position),
+                0 => Some(Mode::Position),
+                1 => Some(Mode::Immediate),
                 _ => None,
             }
         }
@@ -154,17 +154,42 @@ impl IntComp {
         };
         let params = instruction.parameters(pos, &self.values);
 
+        let rn = instruction.code.parameters();
+        log::debug!(
+            "Apply {:?} at position {} with registers {:?}",
+            instruction,
+            pos,
+            &self.values[pos..=pos + rn],
+        );
+        log::debug!("  Parameters: {:?}", params);
+
         let adv = match instruction.code {
             Code::Add => {
-                self.values[params[2] as usize] = params[0] + params[1];
+                let out_ix = self.values[pos + 3] as usize;
+                log::debug!(
+                    "  Adding {}: {} -> {}",
+                    out_ix,
+                    self.values[out_ix],
+                    params[0] + params[1],
+                );
+                self.values[out_ix] = params[0] + params[1];
                 Some(4)
             }
             Code::Multiply => {
-                self.values[params[2] as usize] = params[0] * params[1];
+                let out_ix = self.values[pos + 3] as usize;
+                log::debug!(
+                    "  Multiplying {}: {} -> {}",
+                    out_ix,
+                    self.values[out_ix],
+                    params[0] * params[1],
+                );
+
+                self.values[out_ix] = params[0] * params[1];
                 Some(4)
             }
             Code::Input => {
-                self.values[params[0] as usize] = self.inputs.pop_front().expect("Expected input");
+                let out_ix = self.values[pos + 1] as usize;
+                self.values[out_ix] = self.inputs.pop_front().expect("Expected input");
                 Some(2)
             }
             Code::Output => {
@@ -181,6 +206,25 @@ impl IntComp {
 
         adv
     }
+
+    // Return value is 'keeps going'
+    pub fn step(&mut self) -> Result<bool, failure::Error> {
+        let pos = match self.position {
+            None => return Ok(false),
+            Some(p) => p,
+        };
+
+        let instruction = Instruction::try_from(self.values[pos])?;
+        let stepped = self.apply(instruction);
+
+        Ok(stepped.is_some())
+    }
+
+    pub fn run(&mut self) -> Result<(), failure::Error> {
+        while self.step()? {}
+
+        Ok(())
+    }
 }
 
 impl FromStr for IntComp {
@@ -192,5 +236,62 @@ impl FromStr for IntComp {
         let v: Result<Vec<Value>, ParseIntError> = pieces.map(str::parse).collect();
 
         Ok(IntComp::new(v?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_env_log::test;
+
+    use super::*;
+
+    #[test]
+    fn test_intcodes() -> Result<(), failure::Error> {
+        let start = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
+        let mut cp = IntComp::new(start.clone());
+
+        assert_eq!(cp.step()?, true);
+        assert_eq!(cp.values[0..4], [1, 9, 10, 70]);
+        assert_eq!(cp.position, Some(4));
+
+        assert_eq!(cp.step()?, true);
+        assert_eq!(cp.values[0], 3500);
+
+        assert_eq!(cp.step()?, false);
+
+        assert_eq!(
+            cp.values,
+            vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50]
+        );
+
+        cp = IntComp::new(start);
+        cp.run()?;
+        assert_eq!(
+            cp.values,
+            vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_more_intcodes() -> Result<(), failure::Error> {
+        let mut cp = IntComp::new(vec![1, 0, 0, 0, 99]);
+        cp.run()?;
+        assert_eq!(cp.values, vec![2, 0, 0, 0, 99]);
+
+        cp = IntComp::new(vec![2, 3, 0, 3, 99]);
+        cp.run()?;
+        assert_eq!(cp.values, vec![2, 3, 0, 6, 99]);
+
+        cp = IntComp::new(vec![2, 4, 4, 5, 99, 0]);
+        cp.run()?;
+        assert_eq!(cp.values, vec![2, 4, 4, 5, 99, 9801]);
+
+        cp = IntComp::new(vec![1, 1, 1, 4, 99, 5, 6, 0, 99]);
+        cp.run()?;
+        assert_eq!(cp.values, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
+
+        Ok(())
     }
 }
