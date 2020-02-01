@@ -294,4 +294,33 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_modes() -> Result<(), failure::Error> {
+        let i = Instruction::try_from(1002)?;
+        assert_eq!(
+            i,
+            Instruction {
+                code: Code::Multiply,
+                modes: [Mode::Position, Mode::Immediate, Mode::Position],
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_comp_modes() -> Result<(), failure::Error> {
+        let mut cp = IntComp::from_str("1002,4,3,4,33")?;
+
+        assert_eq!(cp.step()?, true);
+        assert_eq!(cp.position, Some(4));
+        assert_eq!(cp.values, vec![1002, 4, 3, 4, 99]);
+
+        assert_eq!(cp.step()?, false);
+        assert_eq!(cp.position, None);
+        assert_eq!(cp.values, vec![1002, 4, 3, 4, 99]);
+
+        Ok(())
+    }
 }
