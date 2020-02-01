@@ -5,7 +5,7 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-type Value = i64;
+pub type Value = i64;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Code {
@@ -129,9 +129,10 @@ impl Instruction {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IntComp {
-    position: Option<usize>,
-    values: Vec<Value>,
+    pub position: Option<usize>,
+    pub values: Vec<Value>,
     inputs: VecDeque<Value>,
     outputs: VecDeque<Value>,
 }
