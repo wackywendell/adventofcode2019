@@ -1,15 +1,14 @@
+use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-use log::{debug, info};
-
 type Value = i64;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum Code {
+pub enum Code {
     Add,
     Multiply,
     Input,
@@ -18,7 +17,7 @@ enum Code {
 }
 
 impl Code {
-    fn registers_needed(self) -> usize {
+    fn parameters(self) -> usize {
         match self {
             Code::Add => 3,
             Code::Multiply => 3,
@@ -43,7 +42,7 @@ impl fmt::Display for Code {
     }
 }
 
-struct CodeFindError {
+pub struct CodeFindError {
     value: Value,
 }
 
@@ -77,13 +76,13 @@ impl TryFrom<Value> for Code {
 impl Error for CodeFindError {}
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-enum Mode {
+pub enum Mode {
     Position,
     Immediate,
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-struct Instruction {
+pub struct Instruction {
     code: Code,
     modes: [Mode; 3],
 }
@@ -110,5 +109,88 @@ impl TryFrom<Value> for Instruction {
             code,
             modes: [mode1, mode2, mode3],
         })
+    }
+}
+
+impl Instruction {
+    pub fn parameters(self, ix: usize, registers: &[Value]) -> Vec<Value> {
+        let rn = self.code.parameters();
+        let mut params = Vec::with_capacity(rn);
+        for j in 0..rn {
+            let value = registers[ix + j + 1];
+            let value = match self.modes[j] {
+                Mode::Immediate => value,
+                Mode::Position => registers[value as usize],
+            };
+            params.push(value);
+        }
+
+        params
+    }
+}
+
+pub struct IntComp {
+    position: Option<usize>,
+    values: Vec<Value>,
+    inputs: VecDeque<Value>,
+    outputs: VecDeque<Value>,
+}
+
+impl IntComp {
+    pub fn new(values: Vec<Value>) -> Self {
+        IntComp {
+            position: Some(0),
+            values,
+            inputs: Default::default(),
+            outputs: Default::default(),
+        }
+    }
+
+    // Returns None if finished, Some(advance) if it should advance
+    pub fn apply(&mut self, instruction: Instruction) -> Option<usize> {
+        let pos = match self.position {
+            None => return None,
+            Some(p) => p,
+        };
+        let params = instruction.parameters(pos, &self.values);
+
+        let adv = match instruction.code {
+            Code::Add => {
+                self.values[params[2] as usize] = params[0] + params[1];
+                Some(4)
+            }
+            Code::Multiply => {
+                self.values[params[2] as usize] = params[0] * params[1];
+                Some(4)
+            }
+            Code::Input => {
+                self.values[params[0] as usize] = self.inputs.pop_front().expect("Expected input");
+                Some(2)
+            }
+            Code::Output => {
+                self.outputs.push_back(self.values[params[0] as usize]);
+                Some(2)
+            }
+            Code::Halt => None,
+        };
+
+        self.position = match adv {
+            None => None,
+            Some(a) => Some(pos + a),
+        };
+
+        adv
+    }
+}
+
+impl FromStr for IntComp {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let pieces = s.trim().split(',');
+
+        let v: Result<Vec<Value>, ParseIntError> = pieces.map(str::parse).collect();
+
+        Ok(IntComp::new(v?))
     }
 }
