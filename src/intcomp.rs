@@ -5,6 +5,8 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+use failure::Fail;
+
 pub type Value = i64;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,6 +60,8 @@ impl fmt::Debug for CodeFindError {
     }
 }
 
+impl Error for CodeFindError {}
+
 impl TryFrom<Value> for Code {
     type Error = CodeFindError;
 
@@ -72,8 +76,6 @@ impl TryFrom<Value> for Code {
         }
     }
 }
-
-impl Error for CodeFindError {}
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Mode {
@@ -129,12 +131,27 @@ impl Instruction {
     }
 }
 
+#[derive(Fail, Debug)]
+pub enum InvalidInstruction {
+    #[fail(
+        display = "Pointer {}: No Code found with the value {}",
+        position, code
+    )]
+    InvalidCode { position: usize, code: Value },
+
+    #[fail(display = "Pointer {}: Invalid access at {}", position, loc)]
+    InvalidAddress { position: usize, loc: usize },
+
+    #[fail(display = "Pointer {}: Expected input, none found", position)]
+    MissingInput { position: usize },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IntComp {
     pub position: Option<usize>,
     pub values: Vec<Value>,
-    inputs: VecDeque<Value>,
-    outputs: VecDeque<Value>,
+    pub inputs: VecDeque<Value>,
+    pub outputs: VecDeque<Value>,
 }
 
 impl IntComp {
@@ -147,15 +164,47 @@ impl IntComp {
         }
     }
 
-    // Returns None if finished, Some(advance) if it should advance
-    pub fn apply(&mut self, instruction: Instruction) -> Option<usize> {
+    fn get(&self, loc: usize) -> Result<Value, InvalidInstruction> {
+        let v = self
+            .values
+            .get(loc)
+            .ok_or_else(|| InvalidInstruction::InvalidAddress {
+                position: self.position.unwrap_or(0),
+                loc,
+            })?;
+
+        Ok(*v)
+    }
+
+    fn get_mut(&mut self, loc: usize) -> Result<&mut Value, InvalidInstruction> {
+        let opted = self.values.get_mut(loc);
+        let pos = self.position.unwrap_or(0);
+        opted.ok_or(InvalidInstruction::InvalidAddress { position: pos, loc })
+    }
+
+    // Returns true if there's more work to do, false if finished
+    pub fn step(&mut self) -> Result<bool, InvalidInstruction> {
         let pos = match self.position {
-            None => return None,
+            None => return Ok(false),
             Some(p) => p,
         };
+
+        let cv = self.get(pos)?;
+
+        let instruction =
+            Instruction::try_from(cv).map_err(|_| InvalidInstruction::InvalidCode {
+                position: pos,
+                code: cv,
+            })?;
+        let rn = instruction.code.parameters();
+        if self.values.len() <= pos + rn {
+            return Err(InvalidInstruction::InvalidAddress {
+                position: pos,
+                loc: pos + rn,
+            });
+        }
         let params = instruction.parameters(pos, &self.values);
 
-        let rn = instruction.code.parameters();
         log::debug!(
             "Apply {:?} at position {} with registers {:?}",
             instruction,
@@ -166,35 +215,42 @@ impl IntComp {
 
         let adv = match instruction.code {
             Code::Add => {
-                let out_ix = self.values[pos + 3] as usize;
+                let out_ix = self.get(pos + 3)? as usize;
+                let out_loc = self.get_mut(out_ix)?;
                 log::debug!(
                     "  Adding {}: {} -> {}",
                     out_ix,
-                    self.values[out_ix],
+                    *out_loc,
                     params[0] + params[1],
                 );
-                self.values[out_ix] = params[0] + params[1];
+                *out_loc = params[0] + params[1];
                 Some(4)
             }
             Code::Multiply => {
-                let out_ix = self.values[pos + 3] as usize;
+                let out_ix = self.get(pos + 3)? as usize;
+                let out_loc = self.get_mut(out_ix)?;
                 log::debug!(
                     "  Multiplying {}: {} -> {}",
                     out_ix,
-                    self.values[out_ix],
+                    *out_loc,
                     params[0] * params[1],
                 );
 
-                self.values[out_ix] = params[0] * params[1];
+                *out_loc = params[0] * params[1];
                 Some(4)
             }
             Code::Input => {
-                let out_ix = self.values[pos + 1] as usize;
-                self.values[out_ix] = self.inputs.pop_front().expect("Expected input");
+                let input = self
+                    .inputs
+                    .pop_front()
+                    .ok_or(InvalidInstruction::MissingInput { position: pos })?;
+                let out_ix = self.get(pos + 3)? as usize;
+                let out_loc = self.get_mut(out_ix)?;
+                *out_loc = input;
                 Some(2)
             }
             Code::Output => {
-                self.outputs.push_back(self.values[params[0] as usize]);
+                self.outputs.push_back(params[0]);
                 Some(2)
             }
             Code::Halt => None,
@@ -205,20 +261,7 @@ impl IntComp {
             Some(a) => Some(pos + a),
         };
 
-        adv
-    }
-
-    // Return value is 'keeps going'
-    pub fn step(&mut self) -> Result<bool, failure::Error> {
-        let pos = match self.position {
-            None => return Ok(false),
-            Some(p) => p,
-        };
-
-        let instruction = Instruction::try_from(self.values[pos])?;
-        let stepped = self.apply(instruction);
-
-        Ok(stepped.is_some())
+        Ok(adv.is_some())
     }
 
     pub fn run(&mut self) -> Result<(), failure::Error> {
