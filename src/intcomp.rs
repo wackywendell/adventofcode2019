@@ -247,6 +247,10 @@ impl IntComp {
         }
         let params = instruction.parameters(pos, &self.values);
 
+        {
+            let (v1, v2) = self.values.split_at(pos);
+            log::debug!("At position {}: {:?}, {:?}", pos, v1, v2);
+        }
         log::debug!(
             "Apply {:?} at position {} with registers {:?}",
             instruction,
@@ -299,36 +303,30 @@ impl IntComp {
             }
             Code::TrueJump => {
                 if params[0] != 0 {
-                    log::debug!(
-                        "  TrueJump Jump: {} != 0: Jump -> {}",
-                        params[0],
-                        params[1] as usize
-                    );
-                    Some(params[1] as usize)
+                    let address = params[1] as usize; // self.get(pos + 2)? as usize;
+                    log::debug!("  TrueJump Jump: {} != 0: Jump -> {}", params[0], address);
+                    Some(address)
                 } else {
                     log::debug!(
                         "  TrueJump Advance: {} == 0: Jump -> {}",
                         params[0],
-                        pos + 2,
+                        pos + 3,
                     );
-                    Some(pos + 2)
+                    Some(pos + 3)
                 }
             }
             Code::FalseJump => {
                 if params[0] == 0 {
-                    log::debug!(
-                        "  TrueJump Jump: {} == 0: Jump -> {}",
-                        params[0],
-                        params[1] as usize
-                    );
-                    Some(params[1] as usize)
+                    let address = params[1] as usize; //self.get(pos + 2)? as usize;
+                    log::debug!("  FalseJump Jump: {} == 0: Jump -> {}", params[0], address);
+                    Some(address)
                 } else {
                     log::debug!(
-                        "  TrueJump Advance: {} != 0: Jump -> {}",
+                        "  FalseJump Advance: {} != 0: Jump -> {}",
                         params[0],
-                        pos + 2,
+                        pos + 3,
                     );
-                    Some(pos + 2)
+                    Some(pos + 3)
                 }
             }
             Code::LessThan => {
@@ -555,22 +553,56 @@ mod tests {
             IntComp::from_str("3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9")?,
             IntComp::from_str("3,3,1105,-1,9,1101,0,0,12,4,12,99,1")?,
         ];
-        for ocp in &cps {
+        for (n, ocp) in cps.iter().enumerate() {
+            log::info!("==== CP {} ====", n);
             let mut cp = ocp.clone();
             cp.inputs.push_back(0);
+            log::info!("-- Test 1 --");
             cp.run()?;
             assert_eq!(cp.outputs.pop_front(), Some(0));
 
             let mut cp = ocp.clone();
             cp.inputs.push_back(8);
+            log::info!("-- Test 2 --");
             cp.run()?;
             assert_eq!(cp.outputs.pop_front(), Some(1));
 
             let mut cp = ocp.clone();
             cp.inputs.push_back(-20);
+            log::info!("-- Test 3 --");
             cp.run()?;
             assert_eq!(cp.outputs.pop_front(), Some(1));
         }
+        Ok(())
+    }
+
+    #[test]
+    fn test_jump_equals_long() -> Result<(), failure::Error> {
+        let orig_cp = IntComp::from_str(
+            "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99",
+        )?;
+        // The above example program uses an input instruction to ask for a
+        // single number. The program will then output 999 if the input value
+        // is below 8, output 1000 if the input value is equal to 8, or output
+        // 1001 if the input value is greater than 8.
+
+        let mut cp = orig_cp.clone();
+        cp.inputs.push_back(1);
+        log::info!("-- Test 1 --");
+        cp.run()?;
+        assert_eq!(cp.outputs.pop_front(), Some(999));
+
+        let mut cp = orig_cp.clone();
+        cp.inputs.push_back(8);
+        log::info!("-- Test 2 --");
+        cp.run()?;
+        assert_eq!(cp.outputs.pop_front(), Some(1000));
+
+        let mut cp = orig_cp;
+        cp.inputs.push_back(29);
+        log::info!("-- Test 3 --");
+        cp.run()?;
+        assert_eq!(cp.outputs.pop_front(), Some(1001));
         Ok(())
     }
 }
