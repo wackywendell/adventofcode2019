@@ -25,9 +25,11 @@ fn main() -> Result<(), failure::Error> {
     debug!("Using input {}", input_path);
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
-
     let line = buf_reader.lines().next().unwrap()?;
-    let mut cp: IntComp = str::parse(&line)?;
+    let orig_cp: IntComp = str::parse(&line)?;
+
+    println!("Diagnostic test: 1");
+    let mut cp = orig_cp.clone();
     cp.inputs.push_back(1);
 
     while cp.step()? {
@@ -44,6 +46,16 @@ fn main() -> Result<(), failure::Error> {
             }
         }
     }
+
+    println!("Halted. Outputs:");
+    while let Some(s) = cp.outputs.pop_front() {
+        println!("  {}", s);
+    }
+
+    println!("Diagnostic test: 5");
+    let mut cp = orig_cp;
+    cp.inputs.push_back(5);
+    cp.run()?;
 
     println!("Halted. Outputs:");
     while let Some(s) = cp.outputs.pop_front() {
