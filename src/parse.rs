@@ -6,7 +6,7 @@ use log::debug;
 use log::warn;
 
 // Parse a series of items from iterator.
-pub fn parse_iter<E, S, T, Item>(iter: T) -> Result<Vec<Item>, Item::Err>
+pub fn parse_iter<S, T, Item>(iter: T) -> Result<Vec<Item>, Item::Err>
 where
     S: AsRef<str>,
     T: IntoIterator<Item = S>,
