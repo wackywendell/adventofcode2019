@@ -1,9 +1,97 @@
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::str::FromStr;
 
 use clap::{App, Arg};
+use err_derive::Error;
 use log::debug;
+
+use aoc::parse::parse_err_iter;
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct Orbit {
+    orbiter: String,
+    center: String,
+}
+
+impl fmt::Display for Orbit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Orbit[{}({}]", self.orbiter, self.center)
+    }
+}
+
+#[derive(Error, Debug)]
+#[error(display = "Orbit not found: {}", _0)]
+pub struct OrbitNotFound(String);
+
+impl FromStr for Orbit {
+    type Err = OrbitNotFound;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let pieces: Vec<_> = s.trim().splitn(2, ')').collect();
+
+        if pieces.len() != 2 {
+            log::warn!("Found {} pieces: {:?}", pieces.len(), pieces);
+            return Err(OrbitNotFound(s.to_owned()));
+        }
+
+        Ok(Orbit {
+            orbiter: pieces[1].to_owned(),
+            center: pieces[0].to_owned(),
+        })
+    }
+}
+
+pub struct Orbits {
+    // Orbiter -> Center
+    orbiting: HashMap<String, String>,
+    // Center -> [Orbiter]
+    orbiters: HashMap<String, HashSet<String>>,
+}
+
+impl Orbits {
+    pub fn depth_sum(&self) -> usize {
+        let mut queue: VecDeque<(String, usize)> = VecDeque::new();
+        let mut depths: HashMap<String, usize> = HashMap::with_capacity(self.orbiting.len());
+        let mut depth_sum = 0;
+
+        queue.push_back(("COM".to_owned(), 0));
+
+        while let Some((next, d)) = queue.pop_front() {
+            log::debug!("Found {} with depth {}", next, d);
+            depths.insert(next.clone(), d);
+            depth_sum += d;
+
+            let deeper = match self.orbiters.get(&next) {
+                None => continue,
+                Some(v) => v,
+            };
+
+            for o in deeper {
+                queue.push_back((o.to_string(), d + 1));
+            }
+        }
+
+        depth_sum
+    }
+}
+
+impl From<&[Orbit]> for Orbits {
+    fn from(slice: &[Orbit]) -> Self {
+        let mut orbiting = HashMap::with_capacity(slice.len());
+        let mut orbiters: HashMap<String, HashSet<String>> = HashMap::with_capacity(slice.len());
+        for o in slice {
+            orbiting.insert(o.orbiter.clone(), o.center.clone());
+            let v = orbiters.entry(o.center.clone()).or_default();
+            v.insert(o.orbiter.clone());
+        }
+
+        Orbits { orbiting, orbiters }
+    }
+}
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
@@ -24,16 +112,44 @@ fn main() -> Result<(), failure::Error> {
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
-    }
+    let parsed: Vec<Orbit> = parse_err_iter(buf_reader.lines())?;
+    let orbits = Orbits::from(parsed.as_ref());
+
+    let d = orbits.depth_sum();
+
+    println!("Found depth sum {}", d);
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    // use test_env_log::test;
+    use test_env_log::test;
 
-    // use super::*;
+    use aoc::parse::parse_iter;
+
+    use super::*;
+
+    #[test]
+    fn test_depths() -> Result<(), Box<dyn std::error::Error>> {
+        let s = r#"
+            COM)B
+            B)C
+            C)D
+            D)E
+            E)F
+            B)G
+            G)H
+            D)I
+            E)J
+            J)K
+            K)L"#;
+        let parsed: Vec<Orbit> = parse_iter(s.lines())?;
+        let orbits = Orbits::from(parsed.as_ref());
+        let d = orbits.depth_sum();
+
+        assert_eq!(d, 42);
+
+        Ok(())
+    }
 }
