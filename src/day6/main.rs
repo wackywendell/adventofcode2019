@@ -3,6 +3,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::iter::FromIterator;
 use std::str::FromStr;
 
 use clap::{App, Arg};
@@ -77,6 +78,35 @@ impl Orbits {
 
         depth_sum
     }
+
+    pub fn parents(&self, object: &str) -> Vec<&str> {
+        let mut v = Vec::new();
+
+        let mut current = object;
+
+        while let Some(parent) = self.orbiting.get(current) {
+            v.push(parent.as_ref());
+            current = parent;
+        }
+
+        v
+    }
+
+    pub fn transfer(&self, start: &str, end: &str) -> usize {
+        let p1s = self.parents(start);
+        let p2s = self.parents(end);
+
+        let seen: HashSet<&str> = HashSet::from_iter(p1s.iter().copied());
+
+        let mut doubled = 0;
+        for &v in &p2s {
+            if seen.contains(v) {
+                doubled += 1
+            }
+        }
+
+        (p1s.len() - doubled) + (p2s.len() - doubled)
+    }
 }
 
 impl From<&[Orbit]> for Orbits {
@@ -119,6 +149,10 @@ fn main() -> Result<(), failure::Error> {
 
     println!("Found depth sum {}", d);
 
+    let ts = orbits.transfer("YOU", "SAN");
+
+    println!("Found {} transfers between YOU and SAN", ts);
+
     Ok(())
 }
 
@@ -149,6 +183,31 @@ mod tests {
         let d = orbits.depth_sum();
 
         assert_eq!(d, 42);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_transfers() -> Result<(), Box<dyn std::error::Error>> {
+        let s = r#"
+            COM)B
+            B)C
+            C)D
+            D)E
+            E)F
+            B)G
+            G)H
+            D)I
+            E)J
+            J)K
+            K)L
+            K)YOU
+            I)SAN"#;
+        let parsed: Vec<Orbit> = parse_iter(s.lines())?;
+        let orbits = Orbits::from(parsed.as_ref());
+        let ts = orbits.transfer("YOU", "SAN");
+
+        assert_eq!(ts, 4);
 
         Ok(())
     }
