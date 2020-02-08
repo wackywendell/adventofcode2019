@@ -5,6 +5,48 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
+use aoc::intcomp::{IntComp, Value};
+
+pub struct Amplifiers {
+    _inputs: Vec<Value>,
+    comps: Vec<IntComp>,
+}
+
+impl Amplifiers {
+    pub fn new(inputs: Vec<Value>, instructions: Vec<Value>) -> Amplifiers {
+        let mut comps = Vec::with_capacity(inputs.len());
+        for &i in &inputs {
+            let mut c = IntComp::new(instructions.clone());
+            c.inputs.push_back(i);
+            comps.push(c);
+        }
+
+        Amplifiers {
+            _inputs: inputs,
+            comps,
+        }
+    }
+
+    pub fn run(&mut self) -> Result<Vec<Value>, failure::Error> {
+        let mut signal = 0;
+        let mut outputs = Vec::with_capacity(self.comps.len());
+        for c in self.comps.iter_mut() {
+            c.inputs.push_back(signal);
+            c.run()?;
+            if c.outputs.len() != 1 {
+                return Err(failure::err_msg(format!(
+                    "Expected 1 output, got {}",
+                    c.outputs.len()
+                )));
+            }
+            signal = c.outputs.pop_front().unwrap();
+            outputs.push(signal);
+        }
+
+        Ok(outputs)
+    }
+}
+
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
 
@@ -33,7 +75,41 @@ fn main() -> Result<(), failure::Error> {
 
 #[cfg(test)]
 mod tests {
-    // use test_env_log::test;
+    use test_env_log::test;
 
-    // use super::*;
+    use super::*;
+
+    #[test]
+    fn test_amplifiers_run() -> Result<(), failure::Error> {
+        let instructions = vec![
+            3, 15, 3, 16, 1002, 16, 10, 16, 1, 16, 15, 15, 4, 15, 99, 0, 0,
+        ];
+        let sequence = vec![4, 3, 2, 1, 0];
+
+        let mut amp = Amplifiers::new(sequence, instructions);
+        let output = amp.run()?;
+        assert_eq!(output.last(), Some(&43210));
+
+        let instructions = vec![
+            3, 23, 3, 24, 1002, 24, 10, 24, 1002, 23, -1, 23, 101, 5, 23, 23, 1, 24, 23, 23, 4, 23,
+            99, 0, 0,
+        ];
+        let sequence = vec![0, 1, 2, 3, 4];
+
+        let mut amp = Amplifiers::new(sequence, instructions);
+        let output = amp.run()?;
+        assert_eq!(output.last(), Some(&54321));
+
+        let instructions = vec![
+            3, 31, 3, 32, 1002, 32, 10, 32, 1001, 31, -2, 31, 1007, 31, 0, 33, 1002, 33, 7, 33, 1,
+            33, 31, 31, 1, 32, 31, 31, 4, 31, 99, 0, 0, 0,
+        ];
+        let sequence = vec![1, 0, 4, 3, 2];
+
+        let mut amp = Amplifiers::new(sequence, instructions);
+        let output = amp.run()?;
+        assert_eq!(output.last(), Some(&65210));
+
+        Ok(())
+    }
 }
