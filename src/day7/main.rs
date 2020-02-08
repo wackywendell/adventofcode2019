@@ -1,8 +1,10 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::iter::FromIterator;
 
 use clap::{App, Arg};
+use itertools::Itertools;
 use log::debug;
 
 use aoc::intcomp::{IntComp, Value};
@@ -45,6 +47,38 @@ impl Amplifiers {
 
         Ok(outputs)
     }
+}
+
+// Returns (sequence, outputs)
+fn max_output(
+    inputs: usize,
+    instructions: Vec<Value>,
+) -> Result<(Vec<Value>, Vec<Value>), failure::Error> {
+    let mut max_found = None;
+
+    let seq0 = Vec::from_iter(0..(inputs as Value));
+
+    let perms = seq0.iter().copied().permutations(seq0.len());
+
+    for p in perms {
+        let mut amp = Amplifiers::new(p.clone(), instructions.clone());
+        let outputs = amp.run()?;
+        let output = *outputs.last().unwrap();
+
+        let last = match max_found {
+            None => {
+                max_found = Some((p, outputs));
+                continue;
+            }
+            Some((_, ref l)) => *l.last().unwrap(),
+        };
+
+        if last < output {
+            max_found = Some((p, outputs));
+        }
+    }
+
+    Ok(max_found.unwrap())
 }
 
 fn main() -> Result<(), failure::Error> {
@@ -109,6 +143,40 @@ mod tests {
         let mut amp = Amplifiers::new(sequence, instructions);
         let output = amp.run()?;
         assert_eq!(output.last(), Some(&65210));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_amplifiers_max() -> Result<(), failure::Error> {
+        let instructions = vec![
+            3, 15, 3, 16, 1002, 16, 10, 16, 1, 16, 15, 15, 4, 15, 99, 0, 0,
+        ];
+        let sequence = vec![4, 3, 2, 1, 0];
+
+        let (seq, output) = max_output(5, instructions)?;
+        assert_eq!(output.last(), Some(&43210));
+        assert_eq!(seq, sequence);
+
+        let instructions = vec![
+            3, 23, 3, 24, 1002, 24, 10, 24, 1002, 23, -1, 23, 101, 5, 23, 23, 1, 24, 23, 23, 4, 23,
+            99, 0, 0,
+        ];
+        let sequence = vec![0, 1, 2, 3, 4];
+
+        let (seq, output) = max_output(5, instructions)?;
+        assert_eq!(output.last(), Some(&54321));
+        assert_eq!(seq, sequence);
+
+        let instructions = vec![
+            3, 31, 3, 32, 1002, 32, 10, 32, 1001, 31, -2, 31, 1007, 31, 0, 33, 1002, 33, 7, 33, 1,
+            33, 31, 31, 1, 32, 31, 31, 4, 31, 99, 0, 0, 0,
+        ];
+        let sequence = vec![1, 0, 4, 3, 2];
+
+        let (seq, output) = max_output(5, instructions)?;
+        assert_eq!(output.last(), Some(&65210));
+        assert_eq!(seq, sequence);
 
         Ok(())
     }
