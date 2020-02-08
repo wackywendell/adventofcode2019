@@ -57,9 +57,14 @@ fn main() -> Result<(), failure::Error> {
 
 #[cfg(test)]
 mod tests {
-    // use test_env_log::test;
+    use test_env_log::test;
 
     // use super::*;
+
+    #[test]
+    fn test_thing() -> Result<(), failure::Error> {
+        Ok(())
+    }
 }
 EOF
 
