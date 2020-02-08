@@ -10,6 +10,7 @@ err-derive = "0.2.2"
 log = "0.4.8"
 env_logger = "0.7.1"
 clap = "2.33.0"
+itertools = "0.8.2"
 
 [dev-dependencies]
 test-env-log = "0.2.2"
