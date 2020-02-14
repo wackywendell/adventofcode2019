@@ -170,9 +170,16 @@ fn main() -> Result<(), failure::Error> {
         .map(str::parse::<i64>)
         .collect::<Result<Vec<i64>, _>>()?;
 
-    let (seq, outputs) = max_output(5, ints)?;
+    let (seq, outputs) = max_output(5, ints.clone())?;
 
     println!("Used sequence {:?} with outputs {:?}", seq, outputs);
+
+    let (seq, outputs) = max_feedback(ints)?;
+
+    println!(
+        "Feedback used sequence {:?} with outputs {:?}",
+        seq, outputs
+    );
 
     Ok(())
 }
