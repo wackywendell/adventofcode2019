@@ -47,10 +47,41 @@ impl Amplifiers {
 
         Ok(outputs)
     }
+
+    pub fn feedback(&mut self) -> Result<Vec<Value>, failure::Error> {
+        let mut signal = Some(0);
+        let mut outputs = Vec::with_capacity(self.comps.len());
+        loop {
+            let mut ran: Vec<bool> = self.comps.iter().map(|_| false).collect();
+            for (i, c) in self.comps.iter_mut().enumerate() {
+                if let Some(s) = signal {
+                    c.inputs.push_back(s);
+                }
+                signal = c.run_to_output()?;
+                if let Some(v) = signal {
+                    ran[i] = true;
+                    outputs.push(v);
+                }
+            }
+
+            let halted: usize = ran.iter().map(|&r| if r { 0 } else { 1 }).sum();
+            if halted == ran.len() {
+                break;
+            } else if halted == 0 {
+                continue;
+            }
+            return Err(failure::err_msg(format!(
+                "Expected all machines to halt at the same time. Saw {:?}",
+                ran
+            )));
+        }
+
+        Ok(outputs)
+    }
 }
 
 // Returns (sequence, outputs)
-fn max_output(
+pub fn max_output(
     inputs: usize,
     instructions: Vec<Value>,
 ) -> Result<(Vec<Value>, Vec<Value>), failure::Error> {
@@ -63,6 +94,35 @@ fn max_output(
     for p in perms {
         let mut amp = Amplifiers::new(p.clone(), instructions.clone());
         let outputs = amp.run()?;
+        let output = *outputs.last().unwrap();
+
+        let last = match max_found {
+            None => {
+                max_found = Some((p, outputs));
+                continue;
+            }
+            Some((_, ref l)) => *l.last().unwrap(),
+        };
+
+        if last < output {
+            max_found = Some((p, outputs));
+        }
+    }
+
+    Ok(max_found.unwrap())
+}
+
+// Returns (sequence, outputs)
+pub fn max_feedback(instructions: Vec<Value>) -> Result<(Vec<Value>, Vec<Value>), failure::Error> {
+    let mut max_found = None;
+
+    let seq0 = Vec::from_iter(5..=9);
+
+    let perms = seq0.iter().copied().permutations(seq0.len());
+
+    for p in perms {
+        let mut amp = Amplifiers::new(p.clone(), instructions.clone());
+        let outputs = amp.feedback()?;
         let output = *outputs.last().unwrap();
 
         let last = match max_found {
@@ -100,9 +160,19 @@ fn main() -> Result<(), failure::Error> {
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
-    }
+    let line: String = buf_reader
+        .lines()
+        .next()
+        .ok_or_else(|| failure::err_msg("No line found"))??;
+    let ints: Vec<i64> = line
+        .trim()
+        .split(',')
+        .map(str::parse::<i64>)
+        .collect::<Result<Vec<i64>, _>>()?;
+
+    let (seq, outputs) = max_output(5, ints)?;
+
+    println!("Used sequence {:?} with outputs {:?}", seq, outputs);
 
     Ok(())
 }
@@ -177,6 +247,58 @@ mod tests {
         let (seq, output) = max_output(5, instructions)?;
         assert_eq!(output.last(), Some(&65210));
         assert_eq!(seq, sequence);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_feedback() -> Result<(), failure::Error> {
+        let instructions = vec![
+            3, 26, 1001, 26, -4, 26, 3, 27, 1002, 27, 2, 27, 1, 27, 26, 27, 4, 27, 1001, 28, -1,
+            28, 1005, 28, 6, 99, 0, 0, 5,
+        ];
+        let sequence = vec![9, 8, 7, 6, 5];
+
+        let mut amp = Amplifiers::new(sequence, instructions);
+        let output = amp.feedback()?;
+        assert_eq!(output.last(), Some(&139_629_729));
+
+        let instructions = vec![
+            3, 52, 1001, 52, -5, 52, 3, 53, 1, 52, 56, 54, 1007, 54, 5, 55, 1005, 55, 26, 1001, 54,
+            -5, 54, 1105, 1, 12, 1, 53, 54, 53, 1008, 54, 0, 55, 1001, 55, 1, 55, 2, 53, 55, 53, 4,
+            53, 1001, 56, -1, 56, 1005, 56, 6, 99, 0, 0, 0, 0, 10,
+        ];
+        let sequence = vec![9, 7, 8, 5, 6];
+
+        let mut amp = Amplifiers::new(sequence, instructions);
+        let output = amp.feedback()?;
+        assert_eq!(output.last(), Some(&18216));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_max_feedback() -> Result<(), failure::Error> {
+        let instructions = vec![
+            3, 26, 1001, 26, -4, 26, 3, 27, 1002, 27, 2, 27, 1, 27, 26, 27, 4, 27, 1001, 28, -1,
+            28, 1005, 28, 6, 99, 0, 0, 5,
+        ];
+        let expected_sequence = vec![9, 8, 7, 6, 5];
+
+        let (seq, output) = max_feedback(instructions)?;
+        assert_eq!(seq, expected_sequence);
+        assert_eq!(output.last(), Some(&139_629_729));
+
+        let instructions = vec![
+            3, 52, 1001, 52, -5, 52, 3, 53, 1, 52, 56, 54, 1007, 54, 5, 55, 1005, 55, 26, 1001, 54,
+            -5, 54, 1105, 1, 12, 1, 53, 54, 53, 1008, 54, 0, 55, 1001, 55, 1, 55, 2, 53, 55, 53, 4,
+            53, 1001, 56, -1, 56, 1005, 56, 6, 99, 0, 0, 0, 0, 10,
+        ];
+        let expected_sequence = vec![9, 7, 8, 5, 6];
+
+        let (seq, output) = max_feedback(instructions)?;
+        assert_eq!(seq, expected_sequence);
+        assert_eq!(output.last(), Some(&18216));
 
         Ok(())
     }

@@ -368,6 +368,12 @@ impl IntComp {
 
         Ok(())
     }
+
+    pub fn run_to_output(&mut self) -> Result<Option<Value>, failure::Error> {
+        while self.outputs.is_empty() && self.step()? {}
+
+        Ok(self.outputs.pop_front())
+    }
 }
 
 impl FromStr for IntComp {
