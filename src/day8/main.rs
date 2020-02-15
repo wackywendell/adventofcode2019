@@ -13,8 +13,8 @@ impl Image {
     pub fn new(
         input: Vec<u8>,
         layers: usize,
-        width: usize,
         height: usize,
+        width: usize,
     ) -> Result<Image, failure::Error> {
         let size = width * height;
         if input.len() != layers * size {
@@ -39,6 +39,16 @@ impl Image {
 
         Ok(Image { pixels })
     }
+}
+
+pub fn parse_image(
+    line: &str,
+    layers: usize,
+    height: usize,
+    width: usize,
+) -> Result<Image, failure::Error> {
+    let digits = parse_digits(line)?;
+    Image::new(digits, layers, width, height)
 }
 
 fn parse_digits(line: &str) -> Result<Vec<u8>, failure::Error> {
@@ -93,10 +103,20 @@ fn main() -> Result<(), failure::Error> {
 mod tests {
     use test_env_log::test;
 
-    // use super::*;
+    use super::*;
 
     #[test]
-    fn test_thing() -> Result<(), failure::Error> {
+    fn test_parse() -> Result<(), failure::Error> {
+        let img = parse_image("123456789012", 2, 2, 3)?;
+
+        assert_eq!(
+            img.pixels,
+            vec![
+                vec![vec![1, 2, 3], vec![4, 5, 6]],
+                vec![vec![7, 8, 9], vec![0, 1, 2]],
+            ]
+        );
+
         Ok(())
     }
 }
