@@ -9,6 +9,8 @@ use failure::Fail;
 
 pub type Value = i64;
 
+const MAX_SIZE: i64 = 100_000;
+
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Code {
     Add,
@@ -19,6 +21,7 @@ pub enum Code {
     FalseJump,
     LessThan,
     Equals,
+    Relative,
     Halt,
 }
 
@@ -33,6 +36,7 @@ impl Code {
             Code::FalseJump => 2,
             Code::LessThan => 3,
             Code::Equals => 3,
+            Code::Relative => 1,
             Code::Halt => 0,
         }
     }
@@ -49,6 +53,7 @@ impl fmt::Display for Code {
             Code::FalseJump => "FJmp",
             Code::LessThan => "Less",
             Code::Equals => "Eq",
+            Code::Relative => "Rel",
             Code::Halt => "Halt",
         };
 
@@ -87,6 +92,7 @@ impl TryFrom<Value> for Code {
             6 => Ok(Code::FalseJump),
             7 => Ok(Code::LessThan),
             8 => Ok(Code::Equals),
+            9 => Ok(Code::Relative),
             99 => Ok(Code::Halt),
             v => Err(CodeFindError { value: v }),
         }
@@ -97,6 +103,7 @@ impl TryFrom<Value> for Code {
 pub enum Mode {
     Position,
     Immediate,
+    Relative,
 }
 
 impl fmt::Display for Mode {
@@ -104,6 +111,7 @@ impl fmt::Display for Mode {
         match self {
             Mode::Position => write!(f, "Mode::Position"),
             Mode::Immediate => write!(f, "Mode::Immediate"),
+            Mode::Relative => write!(f, "Mode::Relative"),
         }
     }
 }
@@ -124,6 +132,7 @@ impl TryFrom<Value> for Instruction {
             match n {
                 0 => Some(Mode::Position),
                 1 => Some(Mode::Immediate),
+                2 => Some(Mode::Relative),
                 _ => None,
             }
         }
@@ -133,7 +142,7 @@ impl TryFrom<Value> for Instruction {
         let mode3 = mode_from_num((value / 10_000) % 10).ok_or(CodeFindError { value })?;
 
         log::debug!(
-            "Parsed: {} -> Code {} -> {},{},{}",
+            "  Parsed: {} -> Code {} -> {},{},{}",
             value,
             code,
             mode1,
@@ -149,14 +158,26 @@ impl TryFrom<Value> for Instruction {
 }
 
 impl Instruction {
-    pub fn parameters(self, ix: usize, registers: &[Value]) -> Vec<Value> {
+    pub fn parameters(self, ix: usize, registers: &[Value], relative_base: Value) -> Vec<Value> {
         let rn = self.code.parameters();
         let mut params = Vec::with_capacity(rn);
         for j in 0..rn {
             let value = registers[ix + j + 1];
             let new_value = match self.modes[j] {
                 Mode::Immediate => value,
-                Mode::Position => registers[value as usize],
+                Mode::Position => registers.get(value as usize).copied().unwrap_or_default(),
+                Mode::Relative => {
+                    log::debug!(
+                        "      Relative: {} + {}: {}",
+                        value,
+                        relative_base,
+                        value + relative_base
+                    );
+                    registers
+                        .get((value + relative_base) as usize)
+                        .copied()
+                        .unwrap_or_default()
+                }
             };
             log::debug!(
                 "    Parameter {} ({}): {} ({}) -> {}",
@@ -184,6 +205,9 @@ pub enum InvalidInstruction {
     #[fail(display = "Pointer {}: Invalid access at {}", position, loc)]
     InvalidAddress { position: usize, loc: usize },
 
+    #[fail(display = "Pointer {}: Surprisingly large access at {}", position, loc)]
+    HugeAddress { position: usize, loc: usize },
+
     #[fail(display = "Pointer {}: Expected input, none found", position)]
     MissingInput { position: usize },
 }
@@ -191,6 +215,7 @@ pub enum InvalidInstruction {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IntComp {
     pub position: Option<usize>,
+    pub relative_base: Value,
     pub values: Vec<Value>,
     pub inputs: VecDeque<Value>,
     pub outputs: VecDeque<Value>,
@@ -200,6 +225,7 @@ impl IntComp {
     pub fn new(values: Vec<Value>) -> Self {
         IntComp {
             position: Some(0),
+            relative_base: 0,
             values,
             inputs: Default::default(),
             outputs: Default::default(),
@@ -207,21 +233,49 @@ impl IntComp {
     }
 
     fn get(&self, loc: usize) -> Result<Value, InvalidInstruction> {
-        let v = self
-            .values
-            .get(loc)
-            .ok_or_else(|| InvalidInstruction::InvalidAddress {
+        if loc as i64 >= MAX_SIZE {
+            return Err(InvalidInstruction::HugeAddress {
                 position: self.position.unwrap_or(0),
                 loc,
-            })?;
+            });
+        }
 
-        Ok(*v)
+        Ok(match self.values.get(loc) {
+            Some(&n) => n,
+            None if loc > 0 => {
+                // Memory is allowed to extend to 'infinity'
+                0
+            }
+            _ => {
+                return Err(InvalidInstruction::InvalidAddress {
+                    position: self.position.unwrap_or(0),
+                    loc,
+                })
+            }
+        })
     }
 
     fn get_mut(&mut self, loc: usize) -> Result<&mut Value, InvalidInstruction> {
-        let opted = self.values.get_mut(loc);
-        let pos = self.position.unwrap_or(0);
-        opted.ok_or(InvalidInstruction::InvalidAddress { position: pos, loc })
+        // if loc < 0 {
+        //     let pos = self.position.unwrap_or(0);
+        //     return Err(InvalidInstruction::InvalidAddress { position: pos, loc })
+        // }
+        if loc as i64 >= MAX_SIZE {
+            return Err(InvalidInstruction::HugeAddress {
+                position: self.position.unwrap_or(0),
+                loc,
+            });
+        }
+
+        if loc >= self.values.len() {
+            self.values.resize_with(loc + 1, Default::default);
+            // self.values.extend_with(loc - self.values.len() + 1, 0)
+        }
+
+        Ok(self
+            .values
+            .get_mut(loc)
+            .expect("This should be extended to incorporate"))
     }
 
     // Returns true if there's more work to do, false if finished
@@ -232,6 +286,8 @@ impl IntComp {
         };
 
         let cv = self.get(pos)?;
+
+        log::debug!("Apply Instruction at {}: {}", pos, cv);
 
         let instruction =
             Instruction::try_from(cv).map_err(|_| InvalidInstruction::InvalidCode {
@@ -245,14 +301,15 @@ impl IntComp {
                 loc: pos + rn,
             });
         }
-        let params = instruction.parameters(pos, &self.values);
+        let params = instruction.parameters(pos, &self.values, self.relative_base);
 
         {
             let (v1, v2) = self.values.split_at(pos);
-            log::debug!("At position {}: {:?}, {:?}", pos, v1, v2);
+            log::debug!("  At position {}: {:?}, {:?}", pos, v1, v2);
         }
         log::debug!(
-            "Apply {:?} at position {} with registers {:?}",
+            "  Apply {}: {:?} at position {} with registers {:?}",
+            cv,
             instruction,
             pos,
             &self.values[pos..=pos + rn],
@@ -356,6 +413,16 @@ impl IntComp {
                 );
                 *out_loc = out;
                 Some(pos + 4)
+            }
+            Code::Relative => {
+                log::debug!(
+                    "  Adjust Relative Base {} + {} : {}",
+                    self.relative_base,
+                    params[0],
+                    self.relative_base + params[0]
+                );
+                self.relative_base += params[0];
+                Some(pos + 2)
             }
             Code::Halt => None,
         };
@@ -609,6 +676,47 @@ mod tests {
         log::info!("-- Test 3 --");
         cp.run()?;
         assert_eq!(cp.outputs.pop_front(), Some(1001));
+        Ok(())
+    }
+
+    #[test]
+    fn test_relative_mode() -> Result<(), failure::Error> {
+        let orig_cp =
+            IntComp::from_str("109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99")?;
+
+        let mut cp = orig_cp.clone();
+        cp.run()?;
+
+        // Produces a copy of itself as output
+        assert_eq!(cp.outputs, orig_cp.values);
+        Ok(())
+    }
+
+    #[test]
+    fn test_relative_mode2() -> Result<(), failure::Error> {
+        let mut cp = IntComp::from_str("1102,34915192,34915192,7,4,7,99,0")?;
+
+        cp.run()?;
+
+        assert_eq!(cp.outputs.len(), 1);
+
+        assert!(
+            (cp.outputs[0] >= 1_000_000_000_000_000) && (cp.outputs[0] < 10_000_000_000_000_000)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_relative_mode3() -> Result<(), failure::Error> {
+        let mut cp = IntComp::from_str("104,1125899906842624,99")?;
+
+        cp.run()?;
+
+        assert_eq!(cp.outputs.len(), 1);
+
+        assert_eq!(cp.outputs[0], 1_125_899_906_842_624);
+
         Ok(())
     }
 }
