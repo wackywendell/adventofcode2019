@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -16,6 +17,8 @@ impl Image {
         height: usize,
         width: usize,
     ) -> Result<Image, failure::Error> {
+        log::debug!("layers: {}, height: {}, width: {}", layers, height, width);
+
         let size = width * height;
         if input.len() != layers * size {
             return Err(failure::err_msg(format!(
@@ -32,12 +35,49 @@ impl Image {
         for layer in input.chunks(size) {
             let mut rows: Vec<Vec<u8>> = Vec::with_capacity(height);
             for row in layer.chunks(width) {
+                log::debug!("Pushing row of size {} (width {})", row.len(), width);
                 rows.push(row.to_owned())
             }
             pixels.push(rows);
         }
 
         Ok(Image { pixels })
+    }
+
+    pub fn shape(&self) -> (usize, usize, usize) {
+        (
+            self.pixels.len(),
+            self.pixels[0].len(),
+            self.pixels[0][0].len(),
+        )
+    }
+
+    pub fn layer_count(&self, layer: usize) -> HashMap<u8, usize> {
+        let mut counts = HashMap::new();
+        for row in &self.pixels[layer] {
+            for &p in row {
+                let count = counts.entry(p).or_default();
+                *count += 1;
+            }
+        }
+
+        counts
+    }
+
+    pub fn layer_counts(&self) -> Vec<HashMap<u8, usize>> {
+        let mut v = Vec::with_capacity(self.pixels.len());
+        for layer in &self.pixels {
+            let mut counts = HashMap::new();
+            for row in layer {
+                for &p in row {
+                    let count = counts.entry(p).or_default();
+                    *count += 1;
+                }
+            }
+            v.push(counts)
+        }
+
+        v
     }
 }
 
@@ -48,7 +88,7 @@ pub fn parse_image(
     width: usize,
 ) -> Result<Image, failure::Error> {
     let digits = parse_digits(line)?;
-    Image::new(digits, layers, width, height)
+    Image::new(digits, layers, height, width)
 }
 
 fn parse_digits(line: &str) -> Result<Vec<u8>, failure::Error> {
@@ -86,21 +126,57 @@ fn main() -> Result<(), failure::Error> {
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
 
-    let mut ints: Vec<u8> = Vec::new();
+    let mut image = None;
 
     for line in buf_reader.lines() {
         let line = line?;
-        let mut v = parse_digits(line.trim())?;
-        ints.append(&mut v);
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        };
+
+        let n_layers = trimmed.len() / (25 * 6);
+
+        image = Some(parse_image(trimmed, n_layers, 6, 25)?);
+        break;
     }
 
-    println!("Found {} ints", ints.len());
+    let image = image.unwrap();
+    let (layers, height, width) = image.shape();
+
+    log::info!(
+        "Found image with {} layers ({} * {})",
+        layers,
+        height,
+        width
+    );
+
+    let counts = image.layer_counts();
+
+    let ns: Vec<_> = counts
+        .iter()
+        .map(|c| {
+            let (z, o, t) = (
+                c.get(&0).copied().unwrap_or_default(),
+                c.get(&1).copied().unwrap_or_default(),
+                c.get(&2).copied().unwrap_or_default(),
+            );
+            log::debug!("Found counts: {}, {}, {}", z, o, t);
+            (z, o, t)
+        })
+        .collect();
+
+    let &(z, o, t) = ns.iter().min().unwrap();
+
+    println!("Found min: {}, {}, {} -> {}", z, o, t, o * t);
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::iter::FromIterator;
+
     use test_env_log::test;
 
     use super::*;
@@ -116,6 +192,18 @@ mod tests {
                 vec![vec![7, 8, 9], vec![0, 1, 2]],
             ]
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_counts() -> Result<(), failure::Error> {
+        let img = parse_image("123456789012", 2, 2, 3)?;
+
+        let counts0 = img.layer_count(0);
+        let exp0: Vec<(u8, usize)> = vec![(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)];
+
+        assert_eq!(counts0, HashMap::from_iter(exp0.iter().copied()));
 
         Ok(())
     }
