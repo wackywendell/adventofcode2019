@@ -5,6 +5,38 @@ use std::str::FromStr;
 use log::debug;
 use log::warn;
 
+pub fn trimmed_lines<'a, I>(iter: I) -> impl Iterator<Item = &'a str>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    iter.into_iter().filter_map(|l| {
+        let trimmed = l.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    })
+}
+
+pub fn trimmed_err_lines<'a, I, E>(iter: I) -> impl Iterator<Item = Result<&'a str, E>>
+where
+    I: IntoIterator<Item = Result<&'a str, E>>,
+    E: Error + Send + Sync + Sized + 'static,
+{
+    iter.into_iter().filter_map(|rl: Result<&str, _>| match rl {
+        Err(e) => Some(Err(e)),
+        Ok(l) => {
+            let trimmed = l.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(Ok(trimmed))
+            }
+        }
+    })
+}
+
 // Parse a series of items from iterator.
 pub fn parse_iter<S, T, Item>(iter: T) -> Result<Vec<Item>, Item::Err>
 where
