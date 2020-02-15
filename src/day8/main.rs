@@ -2,9 +2,26 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::iter::FromIterator;
 
 use clap::{App, Arg};
 use log::debug;
+
+pub struct Rendered {
+    pixels: Vec<Vec<u8>>,
+}
+
+impl Rendered {
+    pub fn show<'a>(&'a self) -> impl Iterator<Item = String> + 'a {
+        self.pixels.iter().map(|row| {
+            String::from_iter(row.iter().map(|p| match p {
+                0 => ' ',
+                1 => '█',
+                _ => '?',
+            }))
+        })
+    }
+}
 
 pub struct Image {
     pixels: Vec<Vec<Vec<u8>>>,
@@ -78,6 +95,25 @@ impl Image {
         }
 
         v
+    }
+
+    pub fn render(&self) -> Rendered {
+        // Start with upper record
+        let mut rendered = self.pixels[0].clone();
+
+        for layer in &self.pixels[1..] {
+            for (i, row) in layer.iter().enumerate() {
+                for (j, &p) in row.iter().enumerate() {
+                    let rp = rendered[i][j];
+                    if rp != 2 {
+                        continue;
+                    }
+                    rendered[i][j] = p;
+                }
+            }
+        }
+
+        Rendered { pixels: rendered }
     }
 }
 
@@ -170,6 +206,12 @@ fn main() -> Result<(), failure::Error> {
 
     println!("Found min: {}, {}, {} -> {}", z, o, t, o * t);
 
+    let rendered = image.render();
+
+    for s in rendered.show() {
+        println!("{}", s);
+    }
+
     Ok(())
 }
 
@@ -204,6 +246,17 @@ mod tests {
         let exp0: Vec<(u8, usize)> = vec![(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)];
 
         assert_eq!(counts0, HashMap::from_iter(exp0.iter().copied()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_render() -> Result<(), failure::Error> {
+        let img = parse_image("0222112222120000", 4, 2, 2)?;
+
+        let rendered = img.render();
+
+        assert_eq!(rendered.pixels, vec![vec![0, 1], vec![1, 0]]);
 
         Ok(())
     }
