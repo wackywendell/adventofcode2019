@@ -5,6 +5,8 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
+use aoc::intcomp::IntComp;
+
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
 
@@ -22,10 +24,17 @@ fn main() -> Result<(), failure::Error> {
 
     debug!("Using input {}", input_path);
     let file = File::open(input_path)?;
-    let buf_reader = BufReader::new(file);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
+    let buf_reader = BufReader::new(file);
+    let line = buf_reader.lines().next().unwrap()?;
+    let mut cp: IntComp = str::parse(&line)?;
+    cp.inputs.push_back(1);
+
+    cp.run()?;
+
+    println!("Output:");
+    for v in &cp.outputs {
+        println!("  {}", v);
     }
 
     Ok(())
