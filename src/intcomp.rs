@@ -117,6 +117,12 @@ impl fmt::Display for Mode {
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Parameter {
+    relative: usize,
+    mode: Mode,
+}
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instruction {
     code: Code,
     modes: [Mode; 3],
@@ -158,39 +164,17 @@ impl TryFrom<Value> for Instruction {
 }
 
 impl Instruction {
-    pub fn parameters(self, ix: usize, registers: &[Value], relative_base: Value) -> Vec<Value> {
+    pub fn parameters(self) -> Vec<Parameter> {
         let rn = self.code.parameters();
-        let mut params = Vec::with_capacity(rn);
-        for j in 0..rn {
-            let value = registers[ix + j + 1];
-            let new_value = match self.modes[j] {
-                Mode::Immediate => value,
-                Mode::Position => registers.get(value as usize).copied().unwrap_or_default(),
-                Mode::Relative => {
-                    log::debug!(
-                        "      Relative: {} + {}: {}",
-                        value,
-                        relative_base,
-                        value + relative_base
-                    );
-                    registers
-                        .get((value + relative_base) as usize)
-                        .copied()
-                        .unwrap_or_default()
-                }
-            };
-            log::debug!(
-                "    Parameter {} ({}): {} ({}) -> {}",
-                j,
-                ix + j + 1,
-                value,
-                self.modes[j],
-                new_value
-            );
-            params.push(new_value);
+        let mut v = Vec::with_capacity(rn);
+        for i in 0..rn {
+            v.push(Parameter {
+                mode: self.modes[i],
+                relative: i,
+            })
         }
 
-        params
+        v
     }
 }
 
@@ -210,10 +194,20 @@ pub enum InvalidInstruction {
 
     #[fail(display = "Pointer {}: Expected input, none found", position)]
     MissingInput { position: usize },
+
+    #[fail(display = "Cannot operated on completed program")]
+    Completed,
+
+    #[fail(
+        display = "Pointer {}: Asked for mutable value for immediate mode",
+        position
+    )]
+    MutImmediate { position: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IntComp {
+    pub stepped: Value,
     pub position: Option<usize>,
     pub relative_base: Value,
     pub values: Vec<Value>,
@@ -224,12 +218,73 @@ pub struct IntComp {
 impl IntComp {
     pub fn new(values: Vec<Value>) -> Self {
         IntComp {
+            stepped: 0,
             position: Some(0),
             relative_base: 0,
             values,
             inputs: Default::default(),
             outputs: Default::default(),
         }
+    }
+
+    fn value(&self, param: Parameter) -> Result<Value, InvalidInstruction> {
+        let ix = match self.position {
+            None => return Err(InvalidInstruction::Completed),
+            Some(p) => p,
+        };
+
+        let value = self.get(ix + param.relative + 1)?;
+        Ok(match param.mode {
+            Mode::Immediate => value,
+            Mode::Position => {
+                let v = self.get(value as usize)?;
+                log::debug!("      {} Position {}: {}", param.relative, value, v);
+                v
+            }
+            Mode::Relative => {
+                let v = self.get((value + self.relative_base) as usize)?;
+                log::debug!(
+                    "      {} Relative {} + {}: {} -> {}",
+                    param.relative,
+                    value,
+                    self.relative_base,
+                    value + self.relative_base,
+                    v
+                );
+                v
+            }
+        })
+    }
+
+    fn value_mut(&mut self, param: Parameter) -> Result<&mut Value, InvalidInstruction> {
+        let ix = match self.position {
+            None => return Err(InvalidInstruction::Completed),
+            Some(p) => p,
+        };
+
+        Ok(match param.mode {
+            Mode::Immediate => self.get_mut(ix + param.relative + 1)?,
+            Mode::Position => {
+                let value = self.get(ix + param.relative + 1)?;
+                let v = self.get_mut(value as usize)?;
+                log::debug!("      {} Position {}: {}", param.relative, value, v);
+                v
+            }
+            Mode::Relative => {
+                let relative_base = self.relative_base;
+                let value = self.get(ix + param.relative + 1)?;
+                let v = self.get_mut((value + relative_base) as usize)?;
+                log::debug!(
+                    "      {} Relative {} + {}: {} -> {}",
+                    param.relative,
+                    value,
+                    relative_base,
+                    value + relative_base,
+                    v
+                );
+                v
+            }
+        })
     }
 
     fn get(&self, loc: usize) -> Result<Value, InvalidInstruction> {
@@ -287,7 +342,7 @@ impl IntComp {
 
         let cv = self.get(pos)?;
 
-        log::debug!("Apply Instruction at {}: {}", pos, cv);
+        log::debug!("{} Apply Instruction at {}: {}", self.stepped, pos, cv);
 
         let instruction =
             Instruction::try_from(cv).map_err(|_| InvalidInstruction::InvalidCode {
@@ -301,12 +356,8 @@ impl IntComp {
                 loc: pos + rn,
             });
         }
-        let params = instruction.parameters(pos, &self.values, self.relative_base);
+        let params = instruction.parameters();
 
-        {
-            let (v1, v2) = self.values.split_at(pos);
-            log::debug!("  At position {}: {:?}, {:?}", pos, v1, v2);
-        }
         log::debug!(
             "  Apply {}: {:?} at position {} with registers {:?}",
             cv,
@@ -314,32 +365,30 @@ impl IntComp {
             pos,
             &self.values[pos..=pos + rn],
         );
-        log::debug!("  Parameters: {:?}", params);
+        log::debug!("    Parameters: {:?}", params);
 
         self.position = match instruction.code {
             Code::Add => {
-                let out_ix = self.get(pos + 3)? as usize;
-                let out_loc = self.get_mut(out_ix)?;
-                log::debug!(
-                    "  Adding {}: {} -> {}",
-                    out_ix,
-                    *out_loc,
-                    params[0] + params[1],
-                );
-                *out_loc = params[0] + params[1];
+                let v1 = self.value(params[0])?;
+                let v2 = self.value(params[1])?;
+                let out_loc = self.value_mut(params[2])?;
+                log::debug!("  Adding {} <- {} + {} = {}", *out_loc, v1, v2, v1 + v2);
+                *out_loc = v1 + v2;
                 Some(pos + 4)
             }
             Code::Multiply => {
-                let out_ix = self.get(pos + 3)? as usize;
-                let out_loc = self.get_mut(out_ix)?;
+                let v1 = self.value(params[0])?;
+                let v2 = self.value(params[1])?;
+                let out_loc = self.value_mut(params[2])?;
                 log::debug!(
-                    "  Multiplying {}: {} -> {}",
-                    out_ix,
+                    "  Multiplying {} <- {} + {} = {}",
                     *out_loc,
-                    params[0] * params[1],
+                    v1,
+                    v2,
+                    v1 * v2
                 );
 
-                *out_loc = params[0] * params[1];
+                *out_loc = v1 * v2;
                 Some(pos + 4)
             }
             Code::Input => {
@@ -347,85 +396,72 @@ impl IntComp {
                     .inputs
                     .pop_front()
                     .ok_or(InvalidInstruction::MissingInput { position: pos })?;
-                let out_ix = self.get(pos + 1)? as usize;
-                let out_loc = self.get_mut(out_ix)?;
-                log::debug!("  Input {}: {} -> {}", out_ix, *out_loc, input,);
+                let out_loc = self.value_mut(params[0])?;
+                log::debug!("  Input {} <- {}", *out_loc, input);
                 *out_loc = input;
                 Some(pos + 2)
             }
             Code::Output => {
-                self.outputs.push_back(params[0]);
-                log::debug!("  Output {}", params[0]);
+                let val = self.value(params[0])?;
+                self.outputs.push_back(val);
+                log::debug!("  Output {}", val);
                 Some(pos + 2)
             }
             Code::TrueJump => {
-                if params[0] != 0 {
-                    let address = params[1] as usize; // self.get(pos + 2)? as usize;
-                    log::debug!("  TrueJump Jump: {} != 0: Jump -> {}", params[0], address);
-                    Some(address)
+                let truthy = self.value(params[0])?;
+                if truthy != 0 {
+                    let address = self.value(params[1])?; // self.get(pos + 2)? as usize;
+                    log::debug!("  TrueJump Jump: {} != 0: Jump -> {}", truthy, address);
+                    Some(address as usize)
                 } else {
-                    log::debug!(
-                        "  TrueJump Advance: {} == 0: Jump -> {}",
-                        params[0],
-                        pos + 3,
-                    );
+                    log::debug!("  TrueJump Advance: {} == 0: Jump -> {}", truthy, pos + 3);
                     Some(pos + 3)
                 }
             }
             Code::FalseJump => {
-                if params[0] == 0 {
-                    let address = params[1] as usize; //self.get(pos + 2)? as usize;
-                    log::debug!("  FalseJump Jump: {} == 0: Jump -> {}", params[0], address);
-                    Some(address)
+                let truthy = self.value(params[0])?;
+                if truthy == 0 {
+                    let address = self.value(params[1])?; //self.get(pos + 2)? as usize;
+                    log::debug!("  FalseJump Jump: {} == 0: Jump -> {}", truthy, address);
+                    Some(address as usize)
                 } else {
-                    log::debug!(
-                        "  FalseJump Advance: {} != 0: Jump -> {}",
-                        params[0],
-                        pos + 3,
-                    );
+                    log::debug!("  FalseJump Advance: {} != 0: Jump -> {}", truthy, pos + 3,);
                     Some(pos + 3)
                 }
             }
             Code::LessThan => {
-                let out_ix = self.get(pos + 3)? as usize;
-                let out_loc = self.get_mut(out_ix)?;
-                let out = if params[0] < params[1] { 1 } else { 0 };
-                log::debug!(
-                    "  LessThan: {} < {}: {} -> {}",
-                    params[0],
-                    params[1],
-                    *out_loc,
-                    out,
-                );
+                let v1 = self.value(params[0])?;
+                let v2 = self.value(params[1])?;
+                let out_loc = self.value_mut(params[2])?;
+                let out = if v1 < v2 { 1 } else { 0 };
+                log::debug!("  LessThan: {} <- {} < {} = {}", *out_loc, v1, v2, out);
                 *out_loc = out;
                 Some(pos + 4)
             }
             Code::Equals => {
-                let out_ix = self.get(pos + 3)? as usize;
-                let out_loc = self.get_mut(out_ix)?;
-                let out = if params[0] == params[1] { 1 } else { 0 };
-                log::debug!(
-                    "  Equals: {} == {}: {} -> {}",
-                    params[0],
-                    params[1],
-                    *out_loc,
-                    out,
-                );
+                let v1 = self.value(params[0])?;
+                let v2 = self.value(params[1])?;
+                let out_loc = self.value_mut(params[2])?;
+                let out = if v1 == v2 { 1 } else { 0 };
+                log::debug!("  Equals: {} <- {} == {} = {}", *out_loc, v1, v2, out);
                 *out_loc = out;
                 Some(pos + 4)
             }
             Code::Relative => {
+                let val = self.value(params[0])?;
                 log::debug!(
                     "  Adjust Relative Base {} + {} : {}",
                     self.relative_base,
-                    params[0],
-                    self.relative_base + params[0]
+                    val,
+                    self.relative_base + val,
                 );
-                self.relative_base += params[0];
+                self.relative_base += val;
                 Some(pos + 2)
             }
             Code::Halt => None,
         };
+
+        self.stepped += 1;
 
         Ok(self.position.is_some())
     }
