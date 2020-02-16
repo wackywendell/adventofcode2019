@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::BufReader;
 use std::str::FromStr;
 
 use clap::{App, Arg};
@@ -146,12 +145,15 @@ fn main() -> Result<(), failure::Error> {
     let input_path = matches.value_of("INPUT").unwrap_or("inputs/day10.txt");
 
     debug!("Using input {}", input_path);
-    let file = File::open(input_path)?;
-    let buf_reader = BufReader::new(file);
+    let mut file = File::open(input_path)?;
+    let mut s: String = String::new();
+    let read = file.read_to_string(&mut s)?;
+    log::info!("Read {} bytes", read);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
-    }
+    let asteroids = Asteroids::from_str(&s)?;
+    let (Point(x, y), mx) = asteroids.max_visible();
+
+    println!("Found maximum at ({}, {}): {}", x, y, mx);
 
     Ok(())
 }
@@ -190,7 +192,7 @@ mod tests {
         .##.#..###
         ##...#..#.
         .#....####
-        "#;
+    "#;
 
     const EXAMPLE3: &str = r#"
         #.#...#.#.
