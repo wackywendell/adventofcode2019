@@ -27,12 +27,31 @@ fn main() -> Result<(), failure::Error> {
 
     let buf_reader = BufReader::new(file);
     let line = buf_reader.lines().next().unwrap()?;
-    let mut cp: IntComp = str::parse(&line)?;
+    let orig_cp: IntComp = str::parse(&line)?;
+    let mut cp = orig_cp.clone();
     cp.inputs.push_back(1);
 
     cp.run()?;
 
-    println!("Output:");
+    println!(
+        "Diagnostic Output ({} steps, {} size):",
+        cp.stepped,
+        cp.values.len()
+    );
+    for v in &cp.outputs {
+        println!("  {}", v);
+    }
+
+    let mut cp = orig_cp;
+    cp.inputs.push_back(2);
+
+    cp.run()?;
+
+    println!(
+        "Run Output ({} steps, {} size):",
+        cp.stepped,
+        cp.values.len()
+    );
     for v in &cp.outputs {
         println!("  {}", v);
     }
