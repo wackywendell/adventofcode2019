@@ -1,9 +1,31 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 
 use clap::{App, Arg};
 use log::debug;
+
+pub enum Direction {
+    North,
+    East,
+    South,
+    West,
+}
+
+pub struct Robot {
+    position: (i64, i64),
+    direction: Direction,
+}
+
+pub enum Color {
+    White,
+    Black,
+}
+
+pub struct Panels {
+    paint: HashMap<(i64, i64), Color>,
+}
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
