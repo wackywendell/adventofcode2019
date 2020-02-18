@@ -5,7 +5,7 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
-use aoc::intcomp::IntComp;
+use aoc::intcomp::{IntComp, Stopped, UnexpectedState};
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
@@ -30,36 +30,42 @@ fn main() -> Result<(), failure::Error> {
 
     println!("Diagnostic test: 1");
     let mut cp = orig_cp.clone();
-    cp.inputs.push_back(1);
+    cp.run_to_io()?.expect(Stopped::Input)?;
+    cp.process_input(1)?;
 
-    while cp.step()? {
-        while let Some(s) = cp.outputs.pop_front() {
-            let pntr = cp
-                .position
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| "?".to_owned());
-
-            if s == 0 {
-                log::info!("{}: Passed", pntr);
-            } else {
-                println!("{}: Got diagnostic code {}", pntr, s);
+    loop {
+        match cp.run_to_io()? {
+            Stopped::Input => {
+                return Err(UnexpectedState::new(Stopped::Output, Stopped::Input).into())
+            }
+            Stopped::Halted => break,
+            Stopped::Output => {
+                let s = cp.consume_output().unwrap();
+                let pntr = cp.position;
+                if s == 0 {
+                    log::info!("{}: Passed", pntr);
+                } else {
+                    println!("{}: Got diagnostic code {}", pntr, s);
+                }
             }
         }
     }
 
-    println!("Halted. Outputs:");
-    while let Some(s) = cp.outputs.pop_front() {
-        println!("  {}", s);
-    }
-
     println!("Diagnostic test: 5");
     let mut cp = orig_cp;
-    cp.inputs.push_back(5);
-    cp.run()?;
-
-    println!("Halted. Outputs:");
-    while let Some(s) = cp.outputs.pop_front() {
-        println!("  {}", s);
+    cp.run_to_io()?.expect(Stopped::Input)?;
+    cp.process_input(5)?;
+    loop {
+        match cp.run_to_io()? {
+            Stopped::Input => {
+                return Err(UnexpectedState::new(Stopped::Output, Stopped::Input).into())
+            }
+            Stopped::Halted => break,
+            Stopped::Output => {
+                let s = cp.consume_output().unwrap();
+                println!("  Output: {}", s);
+            }
+        }
     }
 
     Ok(())

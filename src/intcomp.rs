@@ -195,6 +195,12 @@ pub enum InvalidInstruction {
     #[fail(display = "Pointer {}: Expected input, none found", position)]
     MissingInput { position: usize },
 
+    #[fail(
+        display = "Pointer {}: Given input, but instruction {} does not match",
+        position, code
+    )]
+    UnexpectedInput { position: usize, code: Code },
+
     #[fail(display = "Cannot operated on completed program")]
     Completed,
 
@@ -203,37 +209,100 @@ pub enum InvalidInstruction {
         position
     )]
     MutImmediate { position: usize },
+
+    #[fail(display = "Consumed {} inputs, {} remaining", consumed, remaining)]
+    UnconsumedInput { consumed: usize, remaining: usize },
+}
+
+pub trait Inputter {
+    fn input(&mut self) -> Value;
+}
+
+pub trait Outputter {
+    fn output(&mut self, out: Value);
+}
+
+#[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub struct OutputVec(VecDeque<Value>);
+
+impl Outputter for OutputVec {
+    fn output(&mut self, out: Value) {
+        self.0.push_back(out);
+    }
+}
+
+#[derive(Debug, Copy, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum State {
+    Ready,
+    WaitingForInput,
+    Output(Value),
+    Halted,
+}
+
+#[derive(Debug, Copy, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Stopped {
+    Input,
+    Output,
+    Halted,
+}
+
+impl fmt::Display for Stopped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Stopped::Input => "[Input]",
+            Stopped::Output => "[Output]",
+            Stopped::Halted => "[Halted]",
+        };
+
+        f.write_str(s)
+    }
+}
+
+#[derive(Fail, Debug)]
+#[fail(display = "Expected State {}, found {}", expected, found)]
+pub struct UnexpectedState {
+    expected: Stopped,
+    found: Stopped,
+}
+
+impl UnexpectedState {
+    pub fn new(expected: Stopped, found: Stopped) -> Self {
+        UnexpectedState { expected, found }
+    }
+}
+
+impl Stopped {
+    pub fn expect(self, expected: Self) -> Result<(), UnexpectedState> {
+        if self == expected {
+            return Ok(());
+        }
+
+        Err(UnexpectedState::new(expected, self))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct IntComp {
+    state: State,
     pub stepped: Value,
-    pub position: Option<usize>,
+    pub position: usize,
     pub relative_base: Value,
     pub values: Vec<Value>,
-    pub inputs: VecDeque<Value>,
-    pub outputs: VecDeque<Value>,
 }
 
 impl IntComp {
     pub fn new(values: Vec<Value>) -> Self {
         IntComp {
+            state: State::Ready,
             stepped: 0,
-            position: Some(0),
+            position: 0,
             relative_base: 0,
             values,
-            inputs: Default::default(),
-            outputs: Default::default(),
         }
     }
 
     fn value(&self, param: Parameter) -> Result<Value, InvalidInstruction> {
-        let ix = match self.position {
-            None => return Err(InvalidInstruction::Completed),
-            Some(p) => p,
-        };
-
-        let value = self.get(ix + param.relative + 1)?;
+        let value = self.get(self.position + param.relative + 1)?;
         Ok(match param.mode {
             Mode::Immediate => value,
             Mode::Position => {
@@ -257,22 +326,18 @@ impl IntComp {
     }
 
     fn value_mut(&mut self, param: Parameter) -> Result<&mut Value, InvalidInstruction> {
-        let ix = match self.position {
-            None => return Err(InvalidInstruction::Completed),
-            Some(p) => p,
-        };
-
+        let pos = self.position + param.relative + 1;
         Ok(match param.mode {
-            Mode::Immediate => self.get_mut(ix + param.relative + 1)?,
+            Mode::Immediate => self.get_mut(pos)?,
             Mode::Position => {
-                let value = self.get(ix + param.relative + 1)?;
+                let value = self.get(pos)?;
                 let v = self.get_mut(value as usize)?;
                 log::debug!("      {} Position {}: {}", param.relative, value, v);
                 v
             }
             Mode::Relative => {
                 let relative_base = self.relative_base;
-                let value = self.get(ix + param.relative + 1)?;
+                let value = self.get(pos)?;
                 let v = self.get_mut((value + relative_base) as usize)?;
                 log::debug!(
                     "      {} Relative {} + {}: {} -> {}",
@@ -290,7 +355,7 @@ impl IntComp {
     fn get(&self, loc: usize) -> Result<Value, InvalidInstruction> {
         if loc as i64 >= MAX_SIZE {
             return Err(InvalidInstruction::HugeAddress {
-                position: self.position.unwrap_or(0),
+                position: self.position,
                 loc,
             });
         }
@@ -303,7 +368,7 @@ impl IntComp {
             }
             _ => {
                 return Err(InvalidInstruction::InvalidAddress {
-                    position: self.position.unwrap_or(0),
+                    position: self.position,
                     loc,
                 })
             }
@@ -311,13 +376,9 @@ impl IntComp {
     }
 
     fn get_mut(&mut self, loc: usize) -> Result<&mut Value, InvalidInstruction> {
-        // if loc < 0 {
-        //     let pos = self.position.unwrap_or(0);
-        //     return Err(InvalidInstruction::InvalidAddress { position: pos, loc })
-        // }
         if loc as i64 >= MAX_SIZE {
             return Err(InvalidInstruction::HugeAddress {
-                position: self.position.unwrap_or(0),
+                position: self.position,
                 loc,
             });
         }
@@ -333,48 +394,165 @@ impl IntComp {
             .expect("This should be extended to incorporate"))
     }
 
-    // Returns true if there's more work to do, false if finished
-    pub fn step(&mut self) -> Result<bool, InvalidInstruction> {
-        let pos = match self.position {
-            None => return Ok(false),
-            Some(p) => p,
-        };
+    pub fn instruction(&self) -> Result<Instruction, InvalidInstruction> {
+        let cv = self.get(self.position)?;
+        Instruction::try_from(cv).map_err(|_| InvalidInstruction::InvalidCode {
+            position: self.position,
+            code: cv,
+        })
+    }
 
-        let cv = self.get(pos)?;
+    // Returns true if input was successful
+    pub fn process_input(&mut self, input: Value) -> Result<bool, InvalidInstruction> {
+        match self.state {
+            // States that can process
+            State::Ready => {}
+            State::WaitingForInput => {}
+            // States that cannot process
+            State::Output(_) => return Ok(false),
+            State::Halted => return Ok(false),
+        }
 
-        log::debug!("{} Apply Instruction at {}: {}", self.stepped, pos, cv);
+        let instruction = self.instruction()?;
+        log::debug!(
+            "{} Apply Instruction at {}: {}",
+            self.stepped,
+            self.position,
+            instruction.code,
+        );
 
-        let instruction =
-            Instruction::try_from(cv).map_err(|_| InvalidInstruction::InvalidCode {
-                position: pos,
-                code: cv,
-            })?;
+        if instruction.code != Code::Input {
+            return Err(InvalidInstruction::UnexpectedInput {
+                position: self.position,
+                code: instruction.code,
+            });
+        }
+
         let rn = instruction.code.parameters();
-        if self.values.len() <= pos + rn {
+        if self.values.len() <= self.position + rn {
             return Err(InvalidInstruction::InvalidAddress {
-                position: pos,
-                loc: pos + rn,
+                position: self.position,
+                loc: self.position + rn,
             });
         }
         let params = instruction.parameters();
 
         log::debug!(
             "  Apply {}: {:?} at position {} with registers {:?}",
-            cv,
+            instruction.code,
             instruction,
-            pos,
-            &self.values[pos..=pos + rn],
+            self.position,
+            &self.values[self.position..=self.position + rn],
         );
         log::debug!("    Parameters: {:?}", params);
 
-        self.position = match instruction.code {
+        let out_loc = self.value_mut(params[0])?;
+        log::debug!("  Input {} <- {}", *out_loc, input);
+        *out_loc = input;
+        self.state = State::Ready;
+        self.position += 2;
+
+        Ok(true)
+    }
+
+    // Process all inputs, erroring if they aren't all consumed. After all inputs are consumed, stops
+    // at the next Halt or Input instruction.
+    pub fn process<I, O>(
+        &mut self,
+        inputs: I,
+        outputter: &mut O,
+    ) -> Result<Stopped, InvalidInstruction>
+    where
+        I: IntoIterator<Item = Value>,
+        I::IntoIter: ExactSizeIterator,
+        O: Outputter,
+    {
+        let it = inputs.into_iter();
+        let mut consumed: usize = 0;
+        let total: usize = it.len();
+
+        for item in it {
+            loop {
+                let state = self.run_to_input(outputter)?;
+                match state {
+                    Stopped::Input => {
+                        if !self.process_input(item)? {
+                            unreachable!("Process_input should always receive")
+                        }
+                        consumed += 1;
+                        break;
+                    }
+                    Stopped::Halted => {
+                        return Err(InvalidInstruction::UnconsumedInput {
+                            consumed,
+                            remaining: total - consumed,
+                        });
+                    }
+                    Stopped::Output => unreachable!(
+                        "Stopped::Output should not be reached when calling run_to_input"
+                    ),
+                }
+            }
+        }
+
+        self.run_to_input(outputter)
+    }
+
+    pub fn consume_output(&mut self) -> Option<Value> {
+        match self.state {
+            State::Output(v) => {
+                self.state = State::Ready;
+                Some(v)
+            }
+            _ => None,
+        }
+    }
+
+    // Returns true if there's more work to do, false if halted or waiting
+    pub fn step(&mut self) -> Result<bool, InvalidInstruction> {
+        match self.state {
+            // States that can process
+            State::Ready => {}
+            // States that cannot process
+            State::WaitingForInput => return Ok(false),
+            State::Output(_) => return Ok(false),
+            State::Halted => return Ok(false),
+        };
+
+        let instruction = self.instruction()?;
+        log::debug!(
+            "{} Apply Instruction at {}: {}",
+            self.stepped,
+            self.position,
+            instruction.code,
+        );
+
+        let rn = instruction.code.parameters();
+        if self.values.len() <= self.position + rn {
+            return Err(InvalidInstruction::InvalidAddress {
+                position: self.position,
+                loc: self.position + rn,
+            });
+        }
+        let params = instruction.parameters();
+
+        log::debug!(
+            "  Apply {}: {:?} at position {} with registers {:?}",
+            instruction.code,
+            instruction,
+            self.position,
+            &self.values[self.position..=self.position + rn],
+        );
+        log::debug!("    Parameters: {:?}", params);
+
+        let position = match instruction.code {
             Code::Add => {
                 let v1 = self.value(params[0])?;
                 let v2 = self.value(params[1])?;
                 let out_loc = self.value_mut(params[2])?;
                 log::debug!("  Adding {} <- {} + {} = {}", *out_loc, v1, v2, v1 + v2);
                 *out_loc = v1 + v2;
-                Some(pos + 4)
+                self.position + 4
             }
             Code::Multiply => {
                 let v1 = self.value(params[0])?;
@@ -389,44 +567,47 @@ impl IntComp {
                 );
 
                 *out_loc = v1 * v2;
-                Some(pos + 4)
+                self.position + 4
             }
             Code::Input => {
-                let input = self
-                    .inputs
-                    .pop_front()
-                    .ok_or(InvalidInstruction::MissingInput { position: pos })?;
-                let out_loc = self.value_mut(params[0])?;
-                log::debug!("  Input {} <- {}", *out_loc, input);
-                *out_loc = input;
-                Some(pos + 2)
+                self.state = State::WaitingForInput;
+                return Ok(false);
             }
             Code::Output => {
                 let val = self.value(params[0])?;
-                self.outputs.push_back(val);
+                self.state = State::Output(val);
                 log::debug!("  Output {}", val);
-                Some(pos + 2)
+                self.position = self.position + 2;
+                return Ok(false);
             }
             Code::TrueJump => {
                 let truthy = self.value(params[0])?;
                 if truthy != 0 {
-                    let address = self.value(params[1])?; // self.get(pos + 2)? as usize;
+                    let address = self.value(params[1])?; // self.get(self.position + 2)? as usize;
                     log::debug!("  TrueJump Jump: {} != 0: Jump -> {}", truthy, address);
-                    Some(address as usize)
+                    address as usize
                 } else {
-                    log::debug!("  TrueJump Advance: {} == 0: Jump -> {}", truthy, pos + 3);
-                    Some(pos + 3)
+                    log::debug!(
+                        "  TrueJump Advance: {} == 0: Jump -> {}",
+                        truthy,
+                        self.position + 3
+                    );
+                    self.position + 3
                 }
             }
             Code::FalseJump => {
                 let truthy = self.value(params[0])?;
                 if truthy == 0 {
-                    let address = self.value(params[1])?; //self.get(pos + 2)? as usize;
+                    let address = self.value(params[1])?; //self.get(self.position + 2)? as usize;
                     log::debug!("  FalseJump Jump: {} == 0: Jump -> {}", truthy, address);
-                    Some(address as usize)
+                    address as usize
                 } else {
-                    log::debug!("  FalseJump Advance: {} != 0: Jump -> {}", truthy, pos + 3,);
-                    Some(pos + 3)
+                    log::debug!(
+                        "  FalseJump Advance: {} != 0: Jump -> {}",
+                        truthy,
+                        self.position + 3,
+                    );
+                    self.position + 3
                 }
             }
             Code::LessThan => {
@@ -436,7 +617,7 @@ impl IntComp {
                 let out = if v1 < v2 { 1 } else { 0 };
                 log::debug!("  LessThan: {} <- {} < {} = {}", *out_loc, v1, v2, out);
                 *out_loc = out;
-                Some(pos + 4)
+                self.position + 4
             }
             Code::Equals => {
                 let v1 = self.value(params[0])?;
@@ -445,7 +626,7 @@ impl IntComp {
                 let out = if v1 == v2 { 1 } else { 0 };
                 log::debug!("  Equals: {} <- {} == {} = {}", *out_loc, v1, v2, out);
                 *out_loc = out;
-                Some(pos + 4)
+                self.position + 4
             }
             Code::Relative => {
                 let val = self.value(params[0])?;
@@ -456,26 +637,54 @@ impl IntComp {
                     self.relative_base + val,
                 );
                 self.relative_base += val;
-                Some(pos + 2)
+                self.position + 2
             }
-            Code::Halt => None,
+            Code::Halt => {
+                self.state = State::Halted;
+                return Ok(false);
+            }
         };
 
-        self.stepped += 1;
+        log::info!(
+            "  Advanced: {:>?}, Position {} -> {}",
+            self.state,
+            self.position,
+            position,
+        );
 
-        Ok(self.position.is_some())
+        self.position = position;
+
+        Ok(true)
     }
 
-    pub fn run(&mut self) -> Result<(), failure::Error> {
+    pub fn run_to_io(&mut self) -> Result<Stopped, InvalidInstruction> {
         while self.step()? {}
 
-        Ok(())
+        Ok(match self.state {
+            State::Ready => unreachable!("Argh"),
+            State::WaitingForInput => Stopped::Input,
+            State::Output(_) => Stopped::Output,
+            State::Halted => Stopped::Halted,
+        })
     }
 
-    pub fn run_to_output(&mut self) -> Result<Option<Value>, failure::Error> {
-        while self.outputs.is_empty() && self.step()? {}
-
-        Ok(self.outputs.pop_front())
+    pub fn run_to_input<O: Outputter>(
+        &mut self,
+        mut outputter: &mut O,
+    ) -> Result<Stopped, InvalidInstruction> {
+        loop {
+            while self.step()? {}
+            match self.state {
+                State::Ready => unreachable!("Argh"),
+                State::WaitingForInput => return Ok(Stopped::Input),
+                State::Output(o) => {
+                    outputter.output(o);
+                    self.state = State::Ready;
+                    continue;
+                }
+                State::Halted => return Ok(Stopped::Halted),
+            }
+        }
     }
 }
 
@@ -504,7 +713,7 @@ mod tests {
 
         assert_eq!(cp.step()?, true);
         assert_eq!(cp.values[0..4], [1, 9, 10, 70]);
-        assert_eq!(cp.position, Some(4));
+        assert_eq!(cp.position, 4);
 
         assert_eq!(cp.step()?, true);
         assert_eq!(cp.values[0], 3500);
@@ -517,7 +726,7 @@ mod tests {
         );
 
         cp = IntComp::new(start);
-        cp.run()?;
+        cp.run_to_io()?.expect(Stopped::Halted)?;
         assert_eq!(
             cp.values,
             vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50]
@@ -529,19 +738,19 @@ mod tests {
     #[test]
     fn test_more_intcodes() -> Result<(), failure::Error> {
         let mut cp = IntComp::new(vec![1, 0, 0, 0, 99]);
-        cp.run()?;
+        cp.run_to_io()?.expect(Stopped::Halted)?;
         assert_eq!(cp.values, vec![2, 0, 0, 0, 99]);
 
         cp = IntComp::new(vec![2, 3, 0, 3, 99]);
-        cp.run()?;
+        cp.run_to_io()?.expect(Stopped::Halted)?;
         assert_eq!(cp.values, vec![2, 3, 0, 6, 99]);
 
         cp = IntComp::new(vec![2, 4, 4, 5, 99, 0]);
-        cp.run()?;
+        cp.run_to_io()?.expect(Stopped::Halted)?;
         assert_eq!(cp.values, vec![2, 4, 4, 5, 99, 9801]);
 
         cp = IntComp::new(vec![1, 1, 1, 4, 99, 5, 6, 0, 99]);
-        cp.run()?;
+        cp.run_to_io()?.expect(Stopped::Halted)?;
         assert_eq!(cp.values, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
 
         Ok(())
@@ -566,11 +775,11 @@ mod tests {
         let mut cp = IntComp::from_str("1002,4,3,4,33")?;
 
         assert_eq!(cp.step()?, true);
-        assert_eq!(cp.position, Some(4));
+        assert_eq!(cp.position, 4);
         assert_eq!(cp.values, vec![1002, 4, 3, 4, 99]);
 
         assert_eq!(cp.step()?, false);
-        assert_eq!(cp.position, None);
+        assert_eq!(cp.state, State::Halted);
         assert_eq!(cp.values, vec![1002, 4, 3, 4, 99]);
 
         Ok(())
@@ -581,40 +790,40 @@ mod tests {
         log::debug!("-- Test 1 --");
         let orig_cp = IntComp::from_str("3,9,8,9,10,9,4,9,99,-1,8")?;
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(8);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(1));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![8], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![1]));
 
         log::debug!("-- Test 2 --");
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(3);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![3], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         log::debug!("-- Test 3 --");
         let mut cp = orig_cp;
-        cp.inputs.push_back(2);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![2], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         log::debug!("-- Test 4 --");
         let orig_cp = IntComp::from_str("3,3,1108,-1,8,3,4,3,99")?;
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(8);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(1));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![8], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![1]));
 
         log::debug!("-- Test 5 --");
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(3);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![3], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         log::debug!("-- Test 6 --");
         let mut cp = orig_cp;
-        cp.inputs.push_back(2);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![2], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         Ok(())
     }
@@ -623,35 +832,37 @@ mod tests {
     fn test_less() -> Result<(), failure::Error> {
         let orig_cp = IntComp::from_str("3,9,7,9,10,9,4,9,99,-1,8")?;
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(3);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(1));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![3], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![1]));
 
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(8);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![8], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         let mut cp = orig_cp;
-        cp.inputs.push_back(20);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![20], &mut outputs)?
+            .expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         let orig_cp = IntComp::from_str("3,3,1107,-1,8,3,4,3,99")?;
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(3);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(1));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![3], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![1]));
 
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(8);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![8], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         let mut cp = orig_cp;
-        cp.inputs.push_back(20);
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(0));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![20], &mut outputs)?
+            .expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![0]));
 
         Ok(())
     }
@@ -664,23 +875,25 @@ mod tests {
         ];
         for (n, ocp) in cps.iter().enumerate() {
             log::info!("==== CP {} ====", n);
-            let mut cp = ocp.clone();
-            cp.inputs.push_back(0);
+
             log::info!("-- Test 1 --");
-            cp.run()?;
-            assert_eq!(cp.outputs.pop_front(), Some(0));
-
             let mut cp = ocp.clone();
-            cp.inputs.push_back(8);
+            let mut outputs = OutputVec::default();
+            cp.process(vec![0], &mut outputs)?.expect(Stopped::Halted)?;
+            assert_eq!(outputs.0, VecDeque::from(vec![0]));
+
             log::info!("-- Test 2 --");
-            cp.run()?;
-            assert_eq!(cp.outputs.pop_front(), Some(1));
-
             let mut cp = ocp.clone();
-            cp.inputs.push_back(-20);
+            let mut outputs = OutputVec::default();
+            cp.process(vec![8], &mut outputs)?.expect(Stopped::Halted)?;
+            assert_eq!(outputs.0, VecDeque::from(vec![1]));
+
             log::info!("-- Test 3 --");
-            cp.run()?;
-            assert_eq!(cp.outputs.pop_front(), Some(1));
+            let mut cp = ocp.clone();
+            let mut outputs = OutputVec::default();
+            cp.process(vec![20], &mut outputs)?
+                .expect(Stopped::Halted)?;
+            assert_eq!(outputs.0, VecDeque::from(vec![1]));
         }
         Ok(())
     }
@@ -696,22 +909,23 @@ mod tests {
         // 1001 if the input value is greater than 8.
 
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(1);
         log::info!("-- Test 1 --");
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(999));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![1], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![999]));
 
         let mut cp = orig_cp.clone();
-        cp.inputs.push_back(8);
         log::info!("-- Test 2 --");
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(1000));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![8], &mut outputs)?.expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![1000]));
 
         let mut cp = orig_cp;
-        cp.inputs.push_back(29);
         log::info!("-- Test 3 --");
-        cp.run()?;
-        assert_eq!(cp.outputs.pop_front(), Some(1001));
+        let mut outputs = OutputVec::default();
+        cp.process(vec![29], &mut outputs)?
+            .expect(Stopped::Halted)?;
+        assert_eq!(outputs.0, VecDeque::from(vec![1001]));
         Ok(())
     }
 
@@ -721,10 +935,11 @@ mod tests {
             IntComp::from_str("109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99")?;
 
         let mut cp = orig_cp.clone();
-        cp.run()?;
+        let mut outputs = OutputVec::default();
+        cp.run_to_input(&mut outputs)?.expect(Stopped::Halted)?;
 
         // Produces a copy of itself as output
-        assert_eq!(cp.outputs, orig_cp.values);
+        assert_eq!(outputs.0, VecDeque::from(orig_cp.values));
         Ok(())
     }
 
@@ -732,12 +947,13 @@ mod tests {
     fn test_relative_mode2() -> Result<(), failure::Error> {
         let mut cp = IntComp::from_str("1102,34915192,34915192,7,4,7,99,0")?;
 
-        cp.run()?;
+        let mut outputs = OutputVec::default();
+        cp.run_to_input(&mut outputs)?.expect(Stopped::Halted)?;
 
-        assert_eq!(cp.outputs.len(), 1);
+        assert_eq!(outputs.0.len(), 1);
 
         assert!(
-            (cp.outputs[0] >= 1_000_000_000_000_000) && (cp.outputs[0] < 10_000_000_000_000_000)
+            (outputs.0[0] >= 1_000_000_000_000_000) && (cp.outputs.0[0] < 10_000_000_000_000_000)
         );
 
         Ok(())

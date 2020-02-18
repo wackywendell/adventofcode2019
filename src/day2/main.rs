@@ -5,7 +5,7 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
-use aoc::intcomp::{IntComp, Value};
+use aoc::intcomp::{IntComp, Stopped, Value};
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
@@ -32,7 +32,7 @@ fn main() -> Result<(), failure::Error> {
     cp.values[1] = 12;
     cp.values[2] = 2;
 
-    cp.run()?;
+    cp.run_to_io()?.expect(Stopped::Halted)?;
 
     println!("At position 0: {}", cp.values[0]);
     let mut found = None;
@@ -41,7 +41,7 @@ fn main() -> Result<(), failure::Error> {
             let mut cp = orig_cp.clone();
             cp.values[1] = ix1 as Value;
             cp.values[2] = ix2 as Value;
-            cp.run()?;
+            cp.run_to_io()?.expect(Stopped::Halted)?;
 
             if cp.values[0] == 19_690_720 {
                 found = Some((ix1, ix2));
