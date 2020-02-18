@@ -7,41 +7,33 @@ use clap::{App, Arg};
 use itertools::Itertools;
 use log::debug;
 
-use aoc::intcomp::{IntComp, Value};
+use aoc::intcomp::{IntComp, Stopped, Value};
 
 pub struct Amplifiers {
-    _inputs: Vec<Value>,
+    inputs: Vec<Value>,
     comps: Vec<IntComp>,
 }
 
 impl Amplifiers {
     pub fn new(inputs: Vec<Value>, instructions: Vec<Value>) -> Amplifiers {
-        let mut comps = Vec::with_capacity(inputs.len());
-        for &i in &inputs {
-            let mut c = IntComp::new(instructions.clone());
-            c.inputs.push_back(i);
-            comps.push(c);
-        }
+        let comps = inputs
+            .iter()
+            .map(|_| IntComp::new(instructions.clone()))
+            .collect::<Vec<_>>();
 
-        Amplifiers {
-            _inputs: inputs,
-            comps,
-        }
+        Amplifiers { inputs, comps }
     }
 
     pub fn run(&mut self) -> Result<Vec<Value>, failure::Error> {
         let mut signal = 0;
         let mut outputs = Vec::with_capacity(self.comps.len());
-        for c in self.comps.iter_mut() {
-            c.inputs.push_back(signal);
-            c.run()?;
-            if c.outputs.len() != 1 {
-                return Err(failure::err_msg(format!(
-                    "Expected 1 output, got {}",
-                    c.outputs.len()
-                )));
-            }
-            signal = c.outputs.pop_front().unwrap();
+        for (&i, c) in self.inputs.iter().zip(self.comps.iter_mut()) {
+            c.run_to_io()?.expect(Stopped::Input)?;
+            c.process_input(i)?;
+            c.run_to_io()?.expect(Stopped::Input)?;
+            c.process_input(signal)?;
+            c.run_to_io()?.expect(Stopped::Output)?;
+            signal = c.consume_output().unwrap();
             outputs.push(signal);
         }
 
@@ -49,19 +41,36 @@ impl Amplifiers {
     }
 
     pub fn feedback(&mut self) -> Result<Vec<Value>, failure::Error> {
-        let mut signal = Some(0);
+        // Setup
+        for (&i, c) in self.inputs.iter().zip(self.comps.iter_mut()) {
+            c.run_to_io()?.expect(Stopped::Input)?;
+            c.process_input(i)?;
+        }
+
+        let mut signal = 0;
         let mut outputs = Vec::with_capacity(self.comps.len());
         loop {
             let mut ran: Vec<bool> = self.comps.iter().map(|_| false).collect();
             for (i, c) in self.comps.iter_mut().enumerate() {
-                if let Some(s) = signal {
-                    c.inputs.push_back(s);
+                match c.run_to_io()? {
+                    Stopped::Halted => continue,
+                    Stopped::Input => {}
+                    Stopped::Output => unreachable!("Shouldn't ask for output before signal"),
                 }
-                signal = c.run_to_output()?;
-                if let Some(v) = signal {
-                    ran[i] = true;
-                    outputs.push(v);
+                c.process_input(signal)?;
+
+                let state = c.run_to_io()?;
+                match state {
+                    Stopped::Halted => unreachable!("Shouldn't halt after signal"),
+                    Stopped::Input => unreachable!("Shouldn't ask for input again"),
+                    Stopped::Output => {}
                 }
+
+                signal = c
+                    .consume_output()
+                    .expect("Output expected after Stopped::Output");
+                ran[i] = true;
+                outputs.push(signal);
             }
 
             let halted: usize = ran.iter().map(|&r| if r { 0 } else { 1 }).sum();

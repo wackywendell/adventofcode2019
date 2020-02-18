@@ -5,7 +5,7 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
-use aoc::intcomp::IntComp;
+use aoc::intcomp::{IntComp, OutputVec, Stopped};
 
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
@@ -29,30 +29,30 @@ fn main() -> Result<(), failure::Error> {
     let line = buf_reader.lines().next().unwrap()?;
     let orig_cp: IntComp = str::parse(&line)?;
     let mut cp = orig_cp.clone();
-    cp.inputs.push_back(1);
-
-    cp.run()?;
+    let mut out_vec = OutputVec::default();
+    cp.process(vec![1], &mut out_vec)?.expect(Stopped::Halted)?;
+    let OutputVec(outputs) = out_vec;
 
     println!(
         "Diagnostic Output ({} steps, {} size):",
         cp.stepped,
         cp.values.len()
     );
-    for v in &cp.outputs {
+    for v in &outputs {
         println!("  {}", v);
     }
 
     let mut cp = orig_cp;
-    cp.inputs.push_back(2);
-
-    cp.run()?;
+    let mut out_vec = OutputVec::default();
+    cp.process(vec![2], &mut out_vec)?.expect(Stopped::Halted)?;
+    let OutputVec(outputs) = out_vec;
 
     println!(
         "Run Output ({} steps, {} size):",
         cp.stepped,
         cp.values.len()
     );
-    for v in &cp.outputs {
+    for v in &outputs {
         println!("  {}", v);
     }
 

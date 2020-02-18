@@ -223,7 +223,7 @@ pub trait Outputter {
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct OutputVec(VecDeque<Value>);
+pub struct OutputVec(pub VecDeque<Value>);
 
 impl Outputter for OutputVec {
     fn output(&mut self, out: Value) {
@@ -577,7 +577,7 @@ impl IntComp {
                 let val = self.value(params[0])?;
                 self.state = State::Output(val);
                 log::debug!("  Output {}", val);
-                self.position = self.position + 2;
+                self.position += 2;
                 return Ok(false);
             }
             Code::TrueJump => {
@@ -670,7 +670,7 @@ impl IntComp {
 
     pub fn run_to_input<O: Outputter>(
         &mut self,
-        mut outputter: &mut O,
+        outputter: &mut O,
     ) -> Result<Stopped, InvalidInstruction> {
         loop {
             while self.step()? {}
@@ -952,9 +952,7 @@ mod tests {
 
         assert_eq!(outputs.0.len(), 1);
 
-        assert!(
-            (outputs.0[0] >= 1_000_000_000_000_000) && (cp.outputs.0[0] < 10_000_000_000_000_000)
-        );
+        assert!((outputs.0[0] >= 1_000_000_000_000_000) && (outputs.0[0] < 10_000_000_000_000_000));
 
         Ok(())
     }
@@ -963,11 +961,12 @@ mod tests {
     fn test_relative_mode3() -> Result<(), failure::Error> {
         let mut cp = IntComp::from_str("104,1125899906842624,99")?;
 
-        cp.run()?;
+        let mut outputs = OutputVec::default();
+        cp.run_to_input(&mut outputs)?.expect(Stopped::Halted)?;
 
-        assert_eq!(cp.outputs.len(), 1);
+        assert_eq!(outputs.0.len(), 1);
 
-        assert_eq!(cp.outputs[0], 1_125_899_906_842_624);
+        assert_eq!(outputs.0[0], 1_125_899_906_842_624);
 
         Ok(())
     }
