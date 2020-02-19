@@ -645,7 +645,7 @@ impl IntComp {
             }
         };
 
-        log::info!(
+        log::debug!(
             "  Advanced: {:>?}, Position {} -> {}",
             self.state,
             self.position,
