@@ -7,6 +7,7 @@ use std::{fmt, ops};
 
 use clap::{App, Arg};
 use log::debug;
+use num::integer::lcm;
 use text_io::try_scan;
 
 use aoc::parse::parse_err_iter;
@@ -154,12 +155,12 @@ impl System {
         let (mut xm, mut ym, mut zm) = (true, true, true);
 
         for (m1, m2) in self.moons.iter().zip(&other.moons) {
-            xm &= m1.r.0 != m2.r.0;
-            xm &= m1.v.0 != m2.v.0;
-            ym &= m1.r.1 != m2.r.1;
-            ym &= m1.v.1 != m2.v.1;
-            zm &= m1.r.2 != m2.r.2;
-            zm &= m1.v.2 != m2.v.2;
+            xm &= m1.r.0 == m2.r.0;
+            xm &= m1.v.0 == m2.v.0;
+            ym &= m1.r.1 == m2.r.1;
+            ym &= m1.v.1 == m2.v.1;
+            zm &= m1.r.2 == m2.r.2;
+            zm &= m1.v.2 == m2.v.2;
         }
 
         (xm, ym, zm)
@@ -204,7 +205,7 @@ impl Repeats {
     pub fn run(&mut self) -> (isize, isize, isize) {
         while self.repeated.0.is_none() || self.repeated.1.is_none() || self.repeated.2.is_none() {
             self.step();
-            if self.steps % 1000 == 0 {
+            if self.steps % 10_000 == 0 {
                 log::info!("Simulated {} steps: {:?}", self.steps, self.repeated);
             }
         }
@@ -251,6 +252,16 @@ fn main() -> Result<(), failure::Error> {
     }
 
     println!("Energy: {}", system.energy());
+
+    let mut repeats = Repeats::new(system);
+    let (rx, ry, rz) = repeats.run();
+
+    let cycle = lcm(lcm(rx, ry), rz);
+
+    println!(
+        "Found repeats after {},{},{} cycles, for a total of {}",
+        rx, ry, rz, cycle
+    );
 
     Ok(())
 }
@@ -308,16 +319,6 @@ mod tests {
 
         Ok(())
     }
-
-    // fn parse_moons(s: &str) -> Result<Vec<Moon>, <Moon as FromStr>::Err> {
-    //     let parsed: Vec<Moon> = parse_iter(s.lines())?;
-    //     let moons: Vec<Moon> = parsed
-    //         .iter()
-    //         .map(|&v| Moon::new(v, Vector::default()))
-    //         .collect();
-
-    //     Ok(System::new(moons))
-    // }
 
     #[test]
     fn test_run() -> Result<(), failure::Error> {
@@ -422,6 +423,38 @@ mod tests {
         }
 
         assert_eq!(system.energy(), 1940);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_repeats() -> Result<(), failure::Error> {
+        let system = parse_system(EXAMPLE)?;
+        let mut repeats = Repeats::new(system);
+        let (rx, ry, rz) = repeats.run();
+
+        let cycle = lcm(lcm(rx, ry), rz);
+        assert_eq!(cycle, 2772);
+
+        Ok(())
+    }
+
+    const EXAMPLE3: &str = r#"
+        <x=-8, y=-10, z=0>
+        <x=5, y=5, z=10>
+        <x=2, y=-7, z=3>
+        <x=9, y=-8, z=-3>
+    "#;
+
+    #[test]
+    fn test_many_repeats() -> Result<(), failure::Error> {
+        let system = parse_system(EXAMPLE3)?;
+        let mut repeats = Repeats::new(system);
+        let (rx, ry, rz) = repeats.run();
+
+        log::info!("Found repeats after {},{},{} cycles", rx, ry, rz);
+        let cycle = lcm(lcm(rx, ry), rz);
+        assert_eq!(cycle, 4_686_774_924);
 
         Ok(())
     }
