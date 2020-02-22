@@ -1,5 +1,5 @@
 use std::error::Error;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::str::FromStr;
 
 use log::debug;
@@ -43,7 +43,7 @@ where
     S: AsRef<str>,
     T: IntoIterator<Item = S>,
     Item: Debug + FromStr,
-    Item::Err: Error + 'static,
+    Item::Err: Display,
 {
     iter.into_iter()
         .filter_map(|l| {
@@ -65,11 +65,11 @@ where
 // Parse a series of items from iterator.
 pub fn parse_err_iter<E, S, T, Item>(iter: T) -> Result<Vec<Item>, failure::Error>
 where
-    E: Error + Send + Sync + Sized + 'static,
+    E: Into<failure::Error> + Display,
     S: AsRef<str>,
     T: IntoIterator<Item = Result<S, E>>,
     Item: Debug + FromStr,
-    Item::Err: Error + Send + Sync + Sized + 'static,
+    Item::Err: Into<failure::Error> + Display,
 {
     iter.into_iter()
         .filter_map(|rl| match rl {
