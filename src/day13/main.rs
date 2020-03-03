@@ -1,13 +1,16 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::str::FromStr;
+// use std::str::FromStr;
 
 use clap::{App, Arg};
 use failure::Fail;
 use log::debug;
+
+use aoc::intcomp::{IntComp, OutputVec, Stopped};
 
 pub type Value = i64;
 
@@ -18,6 +21,20 @@ pub enum Tile {
     Block,
     Paddle,
     Ball,
+}
+
+impl fmt::Display for Tile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Tile::Empty => ".",
+            Tile::Wall => "|",
+            Tile::Block => "X",
+            Tile::Paddle => "P",
+            Tile::Ball => "O",
+        };
+
+        f.write_str(s)
+    }
 }
 
 #[derive(Fail, Debug)]
@@ -44,6 +61,7 @@ impl TryFrom<Value> for Tile {
 #[derive(Debug, Default)]
 pub struct Game {
     tiles: HashMap<(Value, Value), Tile>,
+    score: Value,
 }
 
 impl Game {
@@ -57,16 +75,17 @@ impl Game {
     {
         let (mut x, mut y) = (None, None);
         let mut tiles = HashMap::new();
+        let mut score = 0;
 
         for val in iter {
-            let x = match x {
+            let xv = match x {
                 None => {
                     x = Some(val);
                     continue;
                 }
                 Some(v) => v,
             };
-            let y = match y {
+            let yv = match y {
                 None => {
                     y = Some(val);
                     continue;
@@ -74,50 +93,85 @@ impl Game {
                 Some(v) => v,
             };
 
-            let t = Tile::try_from(val)?;
-            tiles.insert((x, y), t);
+            if (xv, yv) == (-1, 0) {
+                score = val;
+            } else {
+                let t = Tile::try_from(val)?;
+                tiles.insert((xv, yv), t);
+            }
+            x = None;
+            y = None;
         }
 
         if x.is_some() || y.is_some() {
             panic!("Expected groups of three, ended with {:?}, {:?}", x, y);
         }
 
-        Ok(Game { tiles })
+        Ok(Game { tiles, score })
     }
-}
 
-impl FromStr for Game {
-    type Err = failure::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let pieces = s.trim().split(',');
-        let (mut x, mut y) = (None, None);
-        let mut tiles = HashMap::new();
-
-        for val in pieces {
-            let val: Value = str::parse(val)?;
-            let x = match x {
-                None => {
-                    x = Some(val);
-                    continue;
-                }
-                Some(v) => v,
-            };
-            let y = match y {
-                None => {
-                    y = Some(val);
-                    continue;
-                }
-                Some(v) => v,
-            };
-
-            let t = Tile::try_from(val)?;
-            tiles.insert((x, y), t);
+    pub fn counts(&self) -> HashMap<Tile, usize> {
+        let mut counts = HashMap::new();
+        for &v in self.tiles.values() {
+            let t = counts.entry(v).or_default();
+            *t += 1;
         }
 
-        Ok(Game { tiles })
+        counts
     }
 }
+
+// impl FromStr for Game {
+//     type Err = failure::Error;
+
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         let pieces = s.trim().split(',');
+//         let (mut x, mut y) = (None, None);
+//         let mut tiles = HashMap::new();
+
+//         for val in pieces {
+//             let val: Value = str::parse(val)?;
+//             let x = match x {
+//                 None => {
+//                     x = Some(val);
+//                     continue;
+//                 }
+//                 Some(v) => v,
+//             };
+//             let y = match y {
+//                 None => {
+//                     y = Some(val);
+//                     continue;
+//                 }
+//                 Some(v) => v,
+//             };
+
+//             let t = Tile::try_from(val)?;
+//             tiles.insert((x, y), t);
+//         }
+
+//         Ok(Game { tiles })
+//     }
+// }
+
+pub struct Arcade {
+    game: Game,
+    software: IntComp,
+}
+
+impl Arcade {
+    pub fn new(game: Game, software: IntComp) -> Self {
+        Arcade { game, software }
+    }
+}
+
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Direction {
+    Left,
+    Center,
+    Right,
+}
+
 fn main() -> Result<(), failure::Error> {
     env_logger::init();
 
@@ -137,8 +191,23 @@ fn main() -> Result<(), failure::Error> {
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
+    let line: String = buf_reader
+        .lines()
+        .next()
+        .ok_or_else(|| failure::err_msg("No line found"))??;
+
+    let mut cp: IntComp = str::parse(&line)?;
+    let mut outputs = OutputVec::new();
+    cp.process(Vec::new(), &mut outputs)?
+        .expect(Stopped::Halted)?;
+
+    let vs = outputs.0;
+    println!("Found {} Outputs", vs.len());
+
+    let tiles = Game::from_values(vs)?;
+
+    for (k, v) in tiles.counts() {
+        println!("{}: {}", k, v);
     }
 
     Ok(())

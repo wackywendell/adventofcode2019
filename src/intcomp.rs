@@ -231,6 +231,12 @@ impl Outputter for OutputVec {
     }
 }
 
+impl OutputVec {
+    pub fn new() -> Self {
+        Default::default()
+    }
+}
+
 #[derive(Debug, Copy, Hash, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum State {
     Ready,
