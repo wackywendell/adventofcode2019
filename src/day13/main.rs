@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::iter::FromIterator;
-// use std::str::FromStr;
+use std::str::FromStr;
 
 use clap::{App, Arg};
 use failure::Fail;
@@ -71,30 +71,30 @@ pub struct Game {
 }
 
 impl Game {
+    pub fn shape(&self) -> (usize, usize) {
+        let yln = self.grid.len();
+        let xln = if yln > 0 { self.grid[0].len() } else { 0 };
+
+        (yln, xln)
+    }
+
     pub fn add(&mut self, xy: (Value, Value), tile: Tile) -> Tile {
         let (x, y) = xy;
-        // log::debug!(
-        //     "lens: ({}, {}); insert: ({}, {})",
-        //     self.grid.,
-        //     self.ylen,
-        //     x,
-        //     y,
-        // );
-        if !self.grid.is_empty() && y as usize >= self.grid[0].len() {
+
+        if !self.grid.is_empty() && x as usize >= self.grid[0].len() {
             for v in self.grid.iter_mut() {
-                v.extend((v.len()..=y as usize).map(|_| Tile::Empty));
+                v.extend((v.len()..=x as usize).map(|_| Tile::Empty));
             }
         }
-        if x as usize >= self.grid.len() {
-            let xln = self.grid.len();
-            let yln = if xln > 0 {
+        if y as usize >= self.grid.len() {
+            let yln = self.grid.len();
+            let xln = if yln > 0 {
                 self.grid[0].len()
             } else {
-                y as usize + 1
+                x as usize + 1
             };
-            let length = self.grid.len();
             self.grid
-                .extend((length..=xln).map(|_| vec![Tile::Empty; yln]))
+                .extend((yln..=y as usize).map(|_| vec![Tile::Empty; xln]))
         }
 
         // log::debug!(
@@ -105,24 +105,18 @@ impl Game {
         //     y
         // );
 
-        let prev = self.grid[x as usize][y as usize];
-        self.grid[x as usize][y as usize] = tile;
+        let prev = self.grid[y as usize][x as usize];
+        self.grid[y as usize][x as usize] = tile;
         prev
     }
 
-    pub fn from_values<I>(iter: I) -> Result<Self, failure::Error>
-    where
-        I: IntoIterator<Item = Value>,
-    {
+    pub fn from_values<I: IntoIterator<Item = Value>>(iter: I) -> Result<Self, failure::Error> {
         let mut game: Game = Default::default();
         game.update(iter)?;
         Ok(game)
     }
 
-    pub fn update<I>(&mut self, iter: I) -> Result<(), failure::Error>
-    where
-        I: IntoIterator<Item = Value>,
-    {
+    pub fn update<I: IntoIterator<Item = Value>>(&mut self, iter: I) -> Result<(), failure::Error> {
         let (mut x, mut y) = (None, None);
 
         for val in iter {
@@ -191,38 +185,19 @@ impl fmt::Display for Game {
     }
 }
 
-// impl FromStr for Game {
-//     type Err = failure::Error;
+// Mostly unused
+impl FromStr for Game {
+    type Err = failure::Error;
 
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         let pieces = s.trim().split(',');
-//         let (mut x, mut y) = (None, None);
-//         let mut tiles = HashMap::new();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let pieces = s.trim().split(',');
+        let values: Vec<Value> = pieces
+            .map(str::parse)
+            .collect::<Result<Vec<Value>, std::num::ParseIntError>>()?;
 
-//         for val in pieces {
-//             let val: Value = str::parse(val)?;
-//             let x = match x {
-//                 None => {
-//                     x = Some(val);
-//                     continue;
-//                 }
-//                 Some(v) => v,
-//             };
-//             let y = match y {
-//                 None => {
-//                     y = Some(val);
-//                     continue;
-//                 }
-//                 Some(v) => v,
-//             };
-
-//             let t = Tile::try_from(val)?;
-//             tiles.insert((x, y), t);
-//         }
-
-//         Ok(Game { tiles })
-//     }
-// }
+        Game::from_values(values)
+    }
+}
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Direction {
