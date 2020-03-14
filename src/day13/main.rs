@@ -67,10 +67,13 @@ impl TryFrom<Value> for Tile {
 #[derive(Debug, Default)]
 pub struct Game {
     grid: Vec<Vec<Tile>>,
+    ball: (Value, Value),
+    paddle: (Value, Value),
     score: Value,
 }
 
 impl Game {
+    /// (y, x)
     pub fn shape(&self) -> (usize, usize) {
         let yln = self.grid.len();
         let xln = if yln > 0 { self.grid[0].len() } else { 0 };
@@ -105,6 +108,12 @@ impl Game {
         //     y
         // );
 
+        match tile {
+            Tile::Ball => self.ball = (y, x),
+            Tile::Paddle => self.paddle = (y, x),
+            _ => {}
+        }
+
         let prev = self.grid[y as usize][x as usize];
         self.grid[y as usize][x as usize] = tile;
         prev
@@ -114,6 +123,16 @@ impl Game {
         let mut game: Game = Default::default();
         game.update(iter)?;
         Ok(game)
+    }
+
+    pub fn get(&self, index: (Value, Value)) -> Option<Tile> {
+        let (iy, ix) = index;
+        if iy < 0 || ix < 0 {
+            return None;
+        }
+        let row = self.grid.get(iy as usize)?;
+
+        row.get(ix as usize).copied()
     }
 
     pub fn update<I: IntoIterator<Item = Value>>(&mut self, iter: I) -> Result<(), failure::Error> {
@@ -219,6 +238,7 @@ impl From<Direction> for Value {
 pub struct Arcade {
     game: Game,
     software: IntComp,
+    velocity: (Value, Value),
     outputs: OutputVec,
 }
 
@@ -227,6 +247,7 @@ impl Arcade {
         Arcade {
             game,
             software,
+            velocity: Default::default(),
             outputs: Default::default(),
         }
     }
@@ -234,7 +255,10 @@ impl Arcade {
     fn update(&mut self) -> Result<Stopped, failure::Error> {
         self.outputs.0.clear();
         let state = self.software.process(Vec::new(), &mut self.outputs)?;
+        let (by, bx) = self.game.ball;
         self.game.update(self.outputs.0.iter().copied())?;
+        let (by2, bx2) = self.game.ball;
+        self.velocity = (by2 - by, bx2 - bx);
         Ok(state)
     }
 
@@ -251,6 +275,51 @@ impl Arcade {
                 }
             }
         }
+    }
+
+    pub fn auto(&mut self) -> Result<bool, failure::Error> {
+        let (_, prediction) = self.predict();
+        let (_, paddle) = self.game.paddle;
+        let dir = match prediction.cmp(&paddle) {
+            std::cmp::Ordering::Greater => Direction::Right,
+            std::cmp::Ordering::Equal => Direction::Center,
+            std::cmp::Ordering::Less => Direction::Left,
+        };
+
+        self.step(dir)
+    }
+
+    // Location of the ball as (y, x)
+    pub fn ball(&self) -> (Value, Value) {
+        return self.game.ball;
+    }
+
+    // Predicted next location of the ball as (y, x). Prediction ignores blocks and paddle.
+    pub fn predict(&self) -> (Value, Value) {
+        let (by, bx) = self.game.ball;
+        let (vy, vx) = self.velocity;
+        if vy > 1 || vy < -1 || vx > 1 || vx < -1 {
+            panic!("Unexpected velocity: ({}, {})", vy, vx);
+        }
+
+        let (mut nexty, mut nextx) = (by + vy, bx + vx);
+
+        let (szy, szx) = self.game.shape();
+        let (szy, szx) = (szy as Value, szx as Value);
+
+        // Calculate bounces
+        if nexty <= 0 {
+            nexty = 1 - vy;
+        } else if nexty >= szy {
+            nexty = 2 * szy - vy - 1;
+        }
+        if nextx <= 0 {
+            nextx = 1 - vx;
+        } else if nextx >= szx {
+            nextx = 2 * szx - vx - 1;
+        }
+
+        (nexty, nextx)
     }
 }
 
@@ -297,11 +366,25 @@ fn main() -> Result<(), failure::Error> {
     cp.values[0] = 2;
 
     let mut arcade = Arcade::new(Game::default(), cp);
+    let mut prediction = arcade.predict();
 
-    while arcade.step(Direction::Center)? {
+    while arcade.auto()? {
         println!("----------------------------------------");
         println!("{}", arcade.game);
+        for i in 0..=arcade.game.shape().1 {
+            print!("{}", i % 10);
+        }
+        println!("");
         println!("-------------------- Score: {}", arcade.game.score);
+        let (by, bx) = arcade.ball();
+        let (py, px) = prediction;
+        let s = if (by, bx) == (py, px) { "" } else { "!!" };
+        println!(
+            "-------------------- Ball: ({}, {}) -> ({}, {}) {}",
+            py, px, by, bx, s,
+        );
+
+        prediction = arcade.predict();
     }
 
     Ok(())
