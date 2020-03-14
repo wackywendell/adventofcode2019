@@ -323,7 +323,7 @@ impl Wires {
         }
 
         let points = inters.iter().filter_map(|op| {
-            (op.0.intersection(op.1).map(|p| {
+            op.0.intersection(op.1).map(|p| {
                 (
                     op.0.length
                         + op.1.length
@@ -331,7 +331,7 @@ impl Wires {
                         + (op.0.line - op.1.start).abs(),
                     p,
                 )
-            }))
+            })
         });
         points.min()
     }
