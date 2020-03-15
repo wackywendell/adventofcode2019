@@ -257,8 +257,13 @@ fn main() -> Result<(), failure::Error> {
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
 
-    let parsed: Reactions = parse_err_iter(buf_reader.lines())?;
-    println!("Found {} reactions", parsed.values.len());
+    let reactions: Reactions = parse_err_iter(buf_reader.lines())?;
+    println!("Found {} reactions", reactions.values.len());
+
+    let sourced = reactions.sources(Operand::new(1, "FUEL"));
+    for s in &sourced {
+        println!("  {}", s);
+    }
 
     Ok(())
 }
