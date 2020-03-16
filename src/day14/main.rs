@@ -226,6 +226,90 @@ impl Reactions {
 
         sourced.iter().map(|(c, &n)| Operand::new(n, c)).collect()
     }
+
+    pub fn max_produced<S: Into<String>>(&self, input: Operand, output: S) -> i64 {
+        // Maps output to input
+        let mut seen = HashMap::<i64, i64>::new();
+
+        let chemical = output.into();
+
+        let get_input = |out: i64| {
+            let sourced = self.sources(Operand::new(out, &chemical));
+            match sourced.as_slice() {
+                &[Operand {
+                    chemical: ref c,
+                    quantity: q,
+                }] if c == &input.chemical => q,
+                other => panic!("Unexpected sourced: {:?}", other),
+            }
+        };
+
+        let single_in = get_input(1);
+        seen.insert(1, single_in);
+
+        let mut try_next = input.quantity / single_in;
+        for i in 1..10000 {
+            log::warn!("Trying {}", try_next);
+            match seen.entry(try_next) {
+                Vacant(_) => {
+                    log::warn!("{} not found", try_next);
+                }
+                Occupied(o) => {
+                    let next_in = *o.get();
+                    match next_in.cmp(&input.quantity) {
+                        Greater => {
+                            log::warn!("{} -> {} too big", try_next, next_in);
+                            try_next -= 1;
+                            continue;
+                        }
+                        Equal => {
+                            log::warn!("{} -> {} just right", try_next, next_in);
+                            return try_next;
+                        }
+                        Less => {
+                            let &next_above_in = match seen.get(&(try_next + 1)) {
+                                None => {
+                                    try_next += 1;
+                                    continue;
+                                }
+                                Some(v) => v,
+                            };
+
+                            if next_above_in > input.quantity {
+                                // This one is too low, next one is too high
+                                log::warn!(
+                                    "{} -> {} low, and {} -> {} high",
+                                    try_next,
+                                    next_in,
+                                    try_next + 1,
+                                    next_above_in
+                                );
+                                return try_next;
+                            }
+                            log::warn!(
+                                "{} -> {} too low, as is {} -> {}",
+                                try_next,
+                                next_in,
+                                try_next + 1,
+                                next_above_in
+                            );
+                            try_next += 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            let next_in = get_input(try_next);
+            seen.insert(try_next, next_in);
+            log::warn!("{} Tried {}, got {}", i, try_next, next_in);
+            let ratio = (input.quantity as f64) / (next_in as f64);
+
+            try_next = (try_next as f64 * ratio) as i64;
+        }
+
+        0
+    }
 }
 
 impl FromIterator<Reaction> for Reactions {
@@ -289,16 +373,17 @@ mod tests {
         Ok(())
     }
 
+    const EXAMPLE1: &str = "
+        10 ORE => 10 A
+        1 ORE => 1 B
+        7 A, 1 B => 1 C
+        7 A, 1 C => 1 D
+        7 A, 1 D => 1 E
+        7 A, 1 E => 1 FUEL
+    ";
+
     #[test]
     fn test_reactions() -> Result<(), failure::Error> {
-        const EXAMPLE1: &str = "
-            10 ORE => 10 A
-            1 ORE => 1 B
-            7 A, 1 B => 1 C
-            7 A, 1 C => 1 D
-            7 A, 1 D => 1 E
-            7 A, 1 E => 1 FUEL
-        ";
         let r: Reactions = parse_iter(EXAMPLE1.lines())?;
 
         assert_eq!(r.values.len(), 6);
@@ -309,18 +394,19 @@ mod tests {
         Ok(())
     }
 
+    const EXAMPLE2: &str = "
+        9 ORE => 2 A
+        8 ORE => 3 B
+        7 ORE => 5 C
+        3 A, 4 B => 1 AB
+        5 B, 7 C => 1 BC
+        4 C, 1 A => 1 CA
+        2 AB, 3 BC, 4 CA => 1 FUEL
+    ";
+
     #[test]
     fn test_reactions2() -> Result<(), failure::Error> {
-        const EXAMPLE: &str = "
-            9 ORE => 2 A
-            8 ORE => 3 B
-            7 ORE => 5 C
-            3 A, 4 B => 1 AB
-            5 B, 7 C => 1 BC
-            4 C, 1 A => 1 CA
-            2 AB, 3 BC, 4 CA => 1 FUEL
-        ";
-        let r: Reactions = parse_iter(EXAMPLE.lines())?;
+        let r: Reactions = parse_iter(EXAMPLE2.lines())?;
 
         assert_eq!(r.values.len(), 7);
         let sources = r.sources(Operand::new(1, "FUEL"));
@@ -330,20 +416,21 @@ mod tests {
         Ok(())
     }
 
+    const EXAMPLE3: &str = "
+        157 ORE => 5 NZVS
+        165 ORE => 6 DCFZ
+        44 XJWVT, 5 KHKGT, 1 QDVJ, 29 NZVS, 9 GPVTF, 48 HKGWZ => 1 FUEL
+        12 HKGWZ, 1 GPVTF, 8 PSHF => 9 QDVJ
+        179 ORE => 7 PSHF
+        177 ORE => 5 HKGWZ
+        7 DCFZ, 7 PSHF => 2 XJWVT
+        165 ORE => 2 GPVTF
+        3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT
+    ";
+
     #[test]
     fn test_reactions3() -> Result<(), failure::Error> {
-        const EXAMPLE: &str = "
-            157 ORE => 5 NZVS
-            165 ORE => 6 DCFZ
-            44 XJWVT, 5 KHKGT, 1 QDVJ, 29 NZVS, 9 GPVTF, 48 HKGWZ => 1 FUEL
-            12 HKGWZ, 1 GPVTF, 8 PSHF => 9 QDVJ
-            179 ORE => 7 PSHF
-            177 ORE => 5 HKGWZ
-            7 DCFZ, 7 PSHF => 2 XJWVT
-            165 ORE => 2 GPVTF
-            3 DCFZ, 7 NZVS, 5 HKGWZ, 10 PSHF => 8 KHKGT
-        ";
-        let r: Reactions = parse_iter(EXAMPLE.lines())?;
+        let r: Reactions = parse_iter(EXAMPLE3.lines())?;
 
         let sources = r.sources(Operand::new(1, "FUEL"));
 
@@ -352,23 +439,24 @@ mod tests {
         Ok(())
     }
 
+    const EXAMPLE4: &str = "
+        2 VPVL, 7 FWMGM, 2 CXFTF, 11 MNCFX => 1 STKFG
+        17 NVRVD, 3 JNWZP => 8 VPVL
+        53 STKFG, 6 MNCFX, 46 VJHF, 81 HVMC, 68 CXFTF, 25 GNMV => 1 FUEL
+        22 VJHF, 37 MNCFX => 5 FWMGM
+        139 ORE => 4 NVRVD
+        144 ORE => 7 JNWZP
+        5 MNCFX, 7 RFSQX, 2 FWMGM, 2 VPVL, 19 CXFTF => 3 HVMC
+        5 VJHF, 7 MNCFX, 9 VPVL, 37 CXFTF => 6 GNMV
+        145 ORE => 6 MNCFX
+        1 NVRVD => 8 CXFTF
+        1 VJHF, 6 MNCFX => 4 RFSQX
+        176 ORE => 6 VJHF
+    ";
+
     #[test]
     fn test_reactions4() -> Result<(), failure::Error> {
-        const EXAMPLE: &str = "
-            2 VPVL, 7 FWMGM, 2 CXFTF, 11 MNCFX => 1 STKFG
-            17 NVRVD, 3 JNWZP => 8 VPVL
-            53 STKFG, 6 MNCFX, 46 VJHF, 81 HVMC, 68 CXFTF, 25 GNMV => 1 FUEL
-            22 VJHF, 37 MNCFX => 5 FWMGM
-            139 ORE => 4 NVRVD
-            144 ORE => 7 JNWZP
-            5 MNCFX, 7 RFSQX, 2 FWMGM, 2 VPVL, 19 CXFTF => 3 HVMC
-            5 VJHF, 7 MNCFX, 9 VPVL, 37 CXFTF => 6 GNMV
-            145 ORE => 6 MNCFX
-            1 NVRVD => 8 CXFTF
-            1 VJHF, 6 MNCFX => 4 RFSQX
-            176 ORE => 6 VJHF
-        ";
-        let r: Reactions = parse_iter(EXAMPLE.lines())?;
+        let r: Reactions = parse_iter(EXAMPLE4.lines())?;
 
         let sources = r.sources(Operand::new(1, "FUEL"));
 
@@ -377,32 +465,53 @@ mod tests {
         Ok(())
     }
 
+    const EXAMPLE5: &str = "
+        171 ORE => 8 CNZTR
+        7 ZLQW, 3 BMBT, 9 XCVML, 26 XMNCP, 1 WPTQ, 2 MZWV, 1 RJRHP => 4 PLWSL
+        114 ORE => 4 BHXH
+        14 VRPVC => 6 BMBT
+        6 BHXH, 18 KTJDG, 12 WPTQ, 7 PLWSL, 31 FHTLT, 37 ZDVW => 1 FUEL
+        6 WPTQ, 2 BMBT, 8 ZLQW, 18 KTJDG, 1 XMNCP, 6 MZWV, 1 RJRHP => 6 FHTLT
+        15 XDBXC, 2 LTCX, 1 VRPVC => 6 ZLQW
+        13 WPTQ, 10 LTCX, 3 RJRHP, 14 XMNCP, 2 MZWV, 1 ZLQW => 1 ZDVW
+        5 BMBT => 4 WPTQ
+        189 ORE => 9 KTJDG
+        1 MZWV, 17 XDBXC, 3 XCVML => 2 XMNCP
+        12 VRPVC, 27 CNZTR => 2 XDBXC
+        15 KTJDG, 12 BHXH => 5 XCVML
+        3 BHXH, 2 VRPVC => 7 MZWV
+        121 ORE => 7 VRPVC
+        7 XCVML => 6 RJRHP
+        5 BHXH, 4 VRPVC => 5 LTCX
+    ";
+
     #[test]
     fn test_reactions5() -> Result<(), failure::Error> {
-        const EXAMPLE: &str = "
-            171 ORE => 8 CNZTR
-            7 ZLQW, 3 BMBT, 9 XCVML, 26 XMNCP, 1 WPTQ, 2 MZWV, 1 RJRHP => 4 PLWSL
-            114 ORE => 4 BHXH
-            14 VRPVC => 6 BMBT
-            6 BHXH, 18 KTJDG, 12 WPTQ, 7 PLWSL, 31 FHTLT, 37 ZDVW => 1 FUEL
-            6 WPTQ, 2 BMBT, 8 ZLQW, 18 KTJDG, 1 XMNCP, 6 MZWV, 1 RJRHP => 6 FHTLT
-            15 XDBXC, 2 LTCX, 1 VRPVC => 6 ZLQW
-            13 WPTQ, 10 LTCX, 3 RJRHP, 14 XMNCP, 2 MZWV, 1 ZLQW => 1 ZDVW
-            5 BMBT => 4 WPTQ
-            189 ORE => 9 KTJDG
-            1 MZWV, 17 XDBXC, 3 XCVML => 2 XMNCP
-            12 VRPVC, 27 CNZTR => 2 XDBXC
-            15 KTJDG, 12 BHXH => 5 XCVML
-            3 BHXH, 2 VRPVC => 7 MZWV
-            121 ORE => 7 VRPVC
-            7 XCVML => 6 RJRHP
-            5 BHXH, 4 VRPVC => 5 LTCX
-        ";
-        let r: Reactions = parse_iter(EXAMPLE.lines())?;
+        let r: Reactions = parse_iter(EXAMPLE5.lines())?;
 
         let sources = r.sources(Operand::new(1, "FUEL"));
 
         assert_eq!(sources, vec![Operand::new(2210736, "ORE")]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_max_produced() -> Result<(), failure::Error> {
+        let input_size: i64 = 1_000_000_000_000;
+        let input = Operand::new(input_size, "ORE");
+
+        let r: Reactions = parse_iter(EXAMPLE3.lines())?;
+        let out = r.max_produced(input.clone(), "FUEL");
+        assert_eq!(out, 82892753);
+
+        let r: Reactions = parse_iter(EXAMPLE4.lines())?;
+        let out = r.max_produced(input.clone(), "FUEL");
+        assert_eq!(out, 5586022);
+
+        let r: Reactions = parse_iter(EXAMPLE5.lines())?;
+        let out = r.max_produced(input, "FUEL");
+        assert_eq!(out, 460664);
 
         Ok(())
     }
