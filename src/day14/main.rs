@@ -227,7 +227,8 @@ impl Reactions {
         sourced.iter().map(|(c, &n)| Operand::new(n, c)).collect()
     }
 
-    pub fn max_produced<S: Into<String>>(&self, input: Operand, output: S) -> i64 {
+    // Returns (input, output)
+    pub fn max_produced<S: Into<String>>(&self, input: Operand, output: S) -> (i64, i64) {
         // Maps output to input
         let mut seen = HashMap::<i64, i64>::new();
 
@@ -249,22 +250,22 @@ impl Reactions {
 
         let mut try_next = input.quantity / single_in;
         for i in 1..10000 {
-            log::warn!("Trying {}", try_next);
+            log::info!("Trying {}", try_next);
             match seen.entry(try_next) {
                 Vacant(_) => {
-                    log::warn!("{} not found", try_next);
+                    log::info!("{} not found", try_next);
                 }
                 Occupied(o) => {
                     let next_in = *o.get();
                     match next_in.cmp(&input.quantity) {
                         Greater => {
-                            log::warn!("{} -> {} too big", try_next, next_in);
+                            log::info!("{} -> {} too big", try_next, next_in);
                             try_next -= 1;
                             continue;
                         }
                         Equal => {
-                            log::warn!("{} -> {} just right", try_next, next_in);
-                            return try_next;
+                            log::info!("{} -> {} just right", try_next, next_in);
+                            return (try_next, next_in);
                         }
                         Less => {
                             let &next_above_in = match seen.get(&(try_next + 1)) {
@@ -277,16 +278,16 @@ impl Reactions {
 
                             if next_above_in > input.quantity {
                                 // This one is too low, next one is too high
-                                log::warn!(
+                                log::info!(
                                     "{} -> {} low, and {} -> {} high",
                                     try_next,
                                     next_in,
                                     try_next + 1,
                                     next_above_in
                                 );
-                                return try_next;
+                                return (try_next, next_in);
                             }
-                            log::warn!(
+                            log::info!(
                                 "{} -> {} too low, as is {} -> {}",
                                 try_next,
                                 next_in,
@@ -302,13 +303,13 @@ impl Reactions {
 
             let next_in = get_input(try_next);
             seen.insert(try_next, next_in);
-            log::warn!("{} Tried {}, got {}", i, try_next, next_in);
+            log::info!("{} Tried {}, got {}", i, try_next, next_in);
             let ratio = (input.quantity as f64) / (next_in as f64);
 
             try_next = (try_next as f64 * ratio) as i64;
         }
 
-        0
+        (0, 0)
     }
 }
 
@@ -348,6 +349,12 @@ fn main() -> Result<(), failure::Error> {
     for s in &sourced {
         println!("  {}", s);
     }
+
+    let input_size: i64 = 1_000_000_000_000;
+    let input = Operand::new(input_size, "ORE");
+    let (inp, out) = reactions.max_produced(input.clone(), "FUEL");
+
+    println!("Can produce {} FUEL with {} ORE", out, inp);
 
     Ok(())
 }
@@ -502,15 +509,15 @@ mod tests {
         let input = Operand::new(input_size, "ORE");
 
         let r: Reactions = parse_iter(EXAMPLE3.lines())?;
-        let out = r.max_produced(input.clone(), "FUEL");
+        let (_inp, out) = r.max_produced(input.clone(), "FUEL");
         assert_eq!(out, 82892753);
 
         let r: Reactions = parse_iter(EXAMPLE4.lines())?;
-        let out = r.max_produced(input.clone(), "FUEL");
+        let (_inp, out) = r.max_produced(input.clone(), "FUEL");
         assert_eq!(out, 5586022);
 
         let r: Reactions = parse_iter(EXAMPLE5.lines())?;
-        let out = r.max_produced(input, "FUEL");
+        let (_inp, out) = r.max_produced(input, "FUEL");
         assert_eq!(out, 460664);
 
         Ok(())
