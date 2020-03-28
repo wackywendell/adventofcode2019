@@ -350,7 +350,12 @@ fn main() -> Result<(), failure::Error> {
 
     println!("{}", area.with_bot(&bot));
 
-    println!("Shortest: {}", area.shortest_route((0, 0)));
+    println!("Shortest route to Oxygen: {}", area.shortest_route((0, 0)));
+
+    let distances = area.distances(area.oxygen().unwrap());
+    let &max = distances.values().max().unwrap();
+
+    println!("Furthest point from Oxygen: {}", max);
 
     Ok(())
 }
