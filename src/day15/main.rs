@@ -104,7 +104,16 @@ impl Area {
         }
     }
 
-    pub fn shortest_route(&self, start: Position) -> i64 {
+    pub fn oxygen(&self) -> Option<Position> {
+        for (&p, &l) in &self.locations {
+            if l == Location::OxygenSystem {
+                return Some(p);
+            }
+        }
+        None
+    }
+
+    pub fn distances(&self, start: Position) -> HashMap<Position, Value> {
         let mut queue = VecDeque::new();
         queue.push_back((0, start));
         let mut seen = HashMap::new();
@@ -116,17 +125,12 @@ impl Area {
             Direction::West,
         ];
 
-        let mut oxy: Option<Position> = None;
-
         while let Some((dist, pos)) = queue.pop_front() {
             log::info!("Trying {}: {:?}", dist, pos);
             match self.locations.get(&pos) {
                 Some(Location::Wall) => {
                     log::info!("  Hit a Wall");
                     continue;
-                }
-                Some(Location::OxygenSystem) => {
-                    oxy = Some(pos);
                 }
 
                 _ => {}
@@ -145,7 +149,7 @@ impl Area {
                 let next = pos + d;
                 queue.push_back((dist + 1, next));
             }
-            println!(
+            log::info!(
                 "Finished with {:?}: {}, queue size: {}",
                 pos,
                 dist,
@@ -153,9 +157,15 @@ impl Area {
             );
         }
 
-        println!("oxy: {:?}", oxy);
+        seen
+    }
 
-        return *seen.get(&oxy.unwrap()).unwrap();
+    fn shortest_route(&self, start: Position) -> Value {
+        let oxy = self
+            .oxygen()
+            .expect("Can't get shortest route if there is no OxygenSystem");
+        let distances = self.distances(start);
+        *distances.get(&oxy).unwrap()
     }
 }
 
