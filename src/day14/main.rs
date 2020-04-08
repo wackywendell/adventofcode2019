@@ -285,7 +285,7 @@ impl Reactions {
                                     try_next + 1,
                                     next_above_in
                                 );
-                                return (try_next, next_in);
+                                return (next_in, try_next);
                             }
                             log::info!(
                                 "{} -> {} too low, as is {} -> {}",
