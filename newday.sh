@@ -62,7 +62,7 @@ mod tests {
     // use super::*;
 
     #[test]
-    fn test_thing() -> Result<(), failure::Error> {
+    fn test_thing() -> anyhow::Result<()> {
         Ok(())
     }
 }

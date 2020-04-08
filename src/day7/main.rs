@@ -24,7 +24,7 @@ impl Amplifiers {
         Amplifiers { inputs, comps }
     }
 
-    pub fn run(&mut self) -> Result<Vec<Value>, failure::Error> {
+    pub fn run(&mut self) -> anyhow::Result<Vec<Value>> {
         let mut signal = 0;
         let mut outputs = Vec::with_capacity(self.comps.len());
         for (&i, c) in self.inputs.iter().zip(self.comps.iter_mut()) {
@@ -40,7 +40,7 @@ impl Amplifiers {
         Ok(outputs)
     }
 
-    pub fn feedback(&mut self) -> Result<Vec<Value>, failure::Error> {
+    pub fn feedback(&mut self) -> anyhow::Result<Vec<Value>> {
         // Setup
         for (&i, c) in self.inputs.iter().zip(self.comps.iter_mut()) {
             c.run_to_io()?.expect(Stopped::Input)?;
@@ -79,10 +79,10 @@ impl Amplifiers {
             } else if halted == 0 {
                 continue;
             }
-            return Err(failure::err_msg(format!(
+            return Err(anyhow::format_err!(
                 "Expected all machines to halt at the same time. Saw {:?}",
                 ran
-            )));
+            ));
         }
 
         Ok(outputs)
@@ -93,7 +93,7 @@ impl Amplifiers {
 pub fn max_output(
     inputs: usize,
     instructions: Vec<Value>,
-) -> Result<(Vec<Value>, Vec<Value>), failure::Error> {
+) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
     let mut max_found = None;
 
     let seq0 = Vec::from_iter(0..(inputs as Value));
@@ -122,7 +122,7 @@ pub fn max_output(
 }
 
 // Returns (sequence, outputs)
-pub fn max_feedback(instructions: Vec<Value>) -> Result<(Vec<Value>, Vec<Value>), failure::Error> {
+pub fn max_feedback(instructions: Vec<Value>) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
     let mut max_found = None;
 
     let seq0 = Vec::from_iter(5..=9);
@@ -150,7 +150,7 @@ pub fn max_feedback(instructions: Vec<Value>) -> Result<(Vec<Value>, Vec<Value>)
     Ok(max_found.unwrap())
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 7")
@@ -172,7 +172,7 @@ fn main() -> Result<(), failure::Error> {
     let line: String = buf_reader
         .lines()
         .next()
-        .ok_or_else(|| failure::err_msg("No line found"))??;
+        .ok_or_else(|| anyhow::format_err!("No line found"))??;
     let ints: Vec<i64> = line
         .trim()
         .split(',')
@@ -200,7 +200,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_amplifiers_run() -> Result<(), failure::Error> {
+    fn test_amplifiers_run() -> anyhow::Result<()> {
         let instructions = vec![
             3, 15, 3, 16, 1002, 16, 10, 16, 1, 16, 15, 15, 4, 15, 99, 0, 0,
         ];
@@ -234,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn test_amplifiers_max() -> Result<(), failure::Error> {
+    fn test_amplifiers_max() -> anyhow::Result<()> {
         let instructions = vec![
             3, 15, 3, 16, 1002, 16, 10, 16, 1, 16, 15, 15, 4, 15, 99, 0, 0,
         ];
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn test_feedback() -> Result<(), failure::Error> {
+    fn test_feedback() -> anyhow::Result<()> {
         let instructions = vec![
             3, 26, 1001, 26, -4, 26, 3, 27, 1002, 27, 2, 27, 1, 27, 26, 27, 4, 27, 1001, 28, -1,
             28, 1005, 28, 6, 99, 0, 0, 5,
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_max_feedback() -> Result<(), failure::Error> {
+    fn test_max_feedback() -> anyhow::Result<()> {
         let instructions = vec![
             3, 26, 1001, 26, -4, 26, 3, 27, 1002, 27, 2, 27, 1, 27, 26, 27, 4, 27, 1001, 28, -1,
             28, 1005, 28, 6, 99, 0, 0, 5,

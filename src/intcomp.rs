@@ -5,7 +5,7 @@ use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-use failure::Fail;
+use thiserror::Error as Fail;
 
 pub type Value = i64;
 
@@ -180,37 +180,32 @@ impl Instruction {
 
 #[derive(Fail, Debug)]
 pub enum InvalidInstruction {
-    #[fail(
-        display = "Pointer {}: No Code found with the value {}",
-        position, code
-    )]
+    #[error("Pointer {}: No Code found with the value {}", position, code)]
     InvalidCode { position: usize, code: Value },
 
-    #[fail(display = "Pointer {}: Invalid access at {}", position, loc)]
+    #[error("Pointer {}: Invalid access at {}", position, loc)]
     InvalidAddress { position: usize, loc: usize },
 
-    #[fail(display = "Pointer {}: Surprisingly large access at {}", position, loc)]
+    #[error("Pointer {}: Surprisingly large access at {}", position, loc)]
     HugeAddress { position: usize, loc: usize },
 
-    #[fail(display = "Pointer {}: Expected input, none found", position)]
+    #[error("Pointer {}: Expected input, none found", position)]
     MissingInput { position: usize },
 
-    #[fail(
-        display = "Pointer {}: Given input, but instruction {} does not match",
-        position, code
+    #[error(
+        "Pointer {}: Given input, but instruction {} does not match",
+        position,
+        code
     )]
     UnexpectedInput { position: usize, code: Code },
 
-    #[fail(display = "Cannot operated on completed program")]
+    #[error("Cannot operated on completed program")]
     Completed,
 
-    #[fail(
-        display = "Pointer {}: Asked for mutable value for immediate mode",
-        position
-    )]
+    #[error("Pointer {}: Asked for mutable value for immediate mode", position)]
     MutImmediate { position: usize },
 
-    #[fail(display = "Consumed {} inputs, {} remaining", consumed, remaining)]
+    #[error("Consumed {} inputs, {} remaining", consumed, remaining)]
     UnconsumedInput { consumed: usize, remaining: usize },
 }
 
@@ -265,7 +260,7 @@ impl fmt::Display for Stopped {
 }
 
 #[derive(Fail, Debug)]
-#[fail(display = "Expected State {}, found {}", expected, found)]
+#[error("Expected State {}, found {}", expected, found)]
 pub struct UnexpectedState {
     expected: Stopped,
     found: Stopped,
@@ -713,7 +708,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_intcodes() -> Result<(), failure::Error> {
+    fn test_intcodes() -> anyhow::Result<()> {
         let start = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
         let mut cp = IntComp::new(start.clone());
 
@@ -742,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn test_more_intcodes() -> Result<(), failure::Error> {
+    fn test_more_intcodes() -> anyhow::Result<()> {
         let mut cp = IntComp::new(vec![1, 0, 0, 0, 99]);
         cp.run_to_io()?.expect(Stopped::Halted)?;
         assert_eq!(cp.values, vec![2, 0, 0, 0, 99]);
@@ -763,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn test_modes() -> Result<(), failure::Error> {
+    fn test_modes() -> anyhow::Result<()> {
         let i = Instruction::try_from(1002)?;
         assert_eq!(
             i,
@@ -777,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn test_comp_modes() -> Result<(), failure::Error> {
+    fn test_comp_modes() -> anyhow::Result<()> {
         let mut cp = IntComp::from_str("1002,4,3,4,33")?;
 
         assert_eq!(cp.step()?, true);
@@ -792,7 +787,7 @@ mod tests {
     }
 
     #[test]
-    fn test_equals() -> Result<(), failure::Error> {
+    fn test_equals() -> anyhow::Result<()> {
         log::debug!("-- Test 1 --");
         let orig_cp = IntComp::from_str("3,9,8,9,10,9,4,9,99,-1,8")?;
         let mut cp = orig_cp.clone();
@@ -835,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn test_less() -> Result<(), failure::Error> {
+    fn test_less() -> anyhow::Result<()> {
         let orig_cp = IntComp::from_str("3,9,7,9,10,9,4,9,99,-1,8")?;
         let mut cp = orig_cp.clone();
         let mut outputs = OutputVec::default();
@@ -874,7 +869,7 @@ mod tests {
     }
 
     #[test]
-    fn test_jump() -> Result<(), failure::Error> {
+    fn test_jump() -> anyhow::Result<()> {
         let cps = [
             IntComp::from_str("3,12,6,12,15,1,13,14,13,4,13,99,-1,0,1,9")?,
             IntComp::from_str("3,3,1105,-1,9,1101,0,0,12,4,12,99,1")?,
@@ -905,7 +900,7 @@ mod tests {
     }
 
     #[test]
-    fn test_jump_equals_long() -> Result<(), failure::Error> {
+    fn test_jump_equals_long() -> anyhow::Result<()> {
         let orig_cp = IntComp::from_str(
             "3,21,1008,21,8,20,1005,20,22,107,8,21,20,1006,20,31,1106,0,36,98,0,0,1002,21,125,20,4,20,1105,1,46,104,999,1105,1,46,1101,1000,1,20,4,20,1105,1,46,98,99",
         )?;
@@ -936,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    fn test_relative_mode() -> Result<(), failure::Error> {
+    fn test_relative_mode() -> anyhow::Result<()> {
         let orig_cp =
             IntComp::from_str("109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99")?;
 
@@ -950,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn test_relative_mode2() -> Result<(), failure::Error> {
+    fn test_relative_mode2() -> anyhow::Result<()> {
         let mut cp = IntComp::from_str("1102,34915192,34915192,7,4,7,99,0")?;
 
         let mut outputs = OutputVec::default();
@@ -964,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn test_relative_mode3() -> Result<(), failure::Error> {
+    fn test_relative_mode3() -> anyhow::Result<()> {
         let mut cp = IntComp::from_str("104,1125899906842624,99")?;
 
         let mut outputs = OutputVec::default();

@@ -85,7 +85,7 @@ impl Password {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 4")

@@ -65,13 +65,13 @@ where
 }
 
 // Parse a series of items from iterator.
-pub fn parse_err_iter<E, S, T, Item, F>(iter: T) -> Result<F, failure::Error>
+pub fn parse_err_iter<E, S, T, Item, F>(iter: T) -> anyhow::Result<F>
 where
-    E: Into<failure::Error> + Display,
+    E: Into<anyhow::Error> + Display,
     S: AsRef<str>,
     T: IntoIterator<Item = Result<S, E>>,
     Item: Debug + FromStr,
-    Item::Err: Into<failure::Error> + Display,
+    Item::Err: Into<anyhow::Error> + Display,
     F: FromIterator<Item>,
 {
     iter.into_iter()

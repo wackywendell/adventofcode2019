@@ -181,7 +181,7 @@ impl Asteroids {
 }
 
 impl FromStr for Asteroids {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut y = 0;
@@ -225,7 +225,7 @@ pub fn parse_row(s: &str) -> (Option<Value>, Vec<Value>) {
     (laser, values)
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 10")
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tan() -> Result<(), failure::Error> {
+    fn test_tan() -> anyhow::Result<()> {
         let ang = Point(0, -3).degrees();
         assert!((ang - 0.0) < 1e-8);
 
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn test_num() -> Result<(), failure::Error> {
+    fn test_num() -> anyhow::Result<()> {
         assert_eq!(gcd(30, 21), 3);
         assert_eq!(gcd(30, -21), 3);
         assert_eq!(gcd(-30, -21), 3);
@@ -391,7 +391,7 @@ mod tests {
     "#;
 
     #[test]
-    fn test_parse() -> Result<(), failure::Error> {
+    fn test_parse() -> anyhow::Result<()> {
         let locations = vec![
             Point(1, 0),
             Point(4, 0),
@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn test_visible() -> Result<(), failure::Error> {
+    fn test_visible() -> anyhow::Result<()> {
         let locations = vec![
             Point(1, 0),
             Point(4, 0),
@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn test_more_visible() -> Result<(), failure::Error> {
+    fn test_more_visible() -> anyhow::Result<()> {
         let asteroids2 = Asteroids::from_str(EXAMPLE2)?;
         let (pt, mx) = asteroids2.max_visible();
         assert_eq!((pt, mx), (Point(5, 8), 33));
@@ -479,7 +479,7 @@ mod tests {
     "#;
 
     #[test]
-    fn test_laser() -> Result<(), failure::Error> {
+    fn test_laser() -> anyhow::Result<()> {
         let asteroids = Asteroids::from_str(EXAMPLE6)?;
 
         let lased = asteroids.laser_order();
@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn test_laser_big() -> Result<(), failure::Error> {
+    fn test_laser_big() -> anyhow::Result<()> {
         let mut asteroids = Asteroids::from_str(EXAMPLE5)?;
         asteroids.place_laser(Point(11, 13));
 

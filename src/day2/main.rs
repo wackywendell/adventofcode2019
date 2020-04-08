@@ -7,7 +7,7 @@ use log::debug;
 
 use aoc::intcomp::{IntComp, Stopped, Value};
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 2")

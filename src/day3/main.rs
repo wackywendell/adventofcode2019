@@ -5,6 +5,7 @@ use std::io::BufReader;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
+
 use clap::{App, Arg};
 use log::debug;
 
@@ -337,7 +338,7 @@ impl Wires {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 3")
@@ -375,7 +376,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_intersections() -> Result<(), failure::Error> {
+    fn test_intersections() -> anyhow::Result<()> {
         let w0 = Sections::from_str("R8,U5,L5,D3")?;
         let exp = Sections(vec![
             Section(Direction::Horizontal, 8),
@@ -480,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn test_more_wires() -> Result<(), failure::Error> {
+    fn test_more_wires() -> anyhow::Result<()> {
         let wires = Wires::new(vec![
             Sections::from_str("R75,D30,R83,U83,L12,D49,R71,U7,L72")?,
             Sections::from_str("U62,R66,U55,R34,D71,R55,D58,R83")?,
@@ -499,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fastest() -> Result<(), failure::Error> {
+    fn test_fastest() -> anyhow::Result<()> {
         let wires = Wires::new(vec![
             Sections::from_str("R8,U5,L5,D3")?,
             Sections::from_str("U7,R6,D4,L4")?,

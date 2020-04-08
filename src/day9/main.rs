@@ -7,7 +7,7 @@ use log::debug;
 
 use aoc::intcomp::{IntComp, OutputVec, Stopped};
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 9")
@@ -57,16 +57,4 @@ fn main() -> Result<(), failure::Error> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use test_env_log::test;
-
-    // use super::*;
-
-    #[test]
-    fn test_thing() -> Result<(), failure::Error> {
-        Ok(())
-    }
 }

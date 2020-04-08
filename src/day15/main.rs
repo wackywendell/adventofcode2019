@@ -76,14 +76,14 @@ pub enum Location {
 }
 
 impl TryFrom<Value> for Location {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Location::Wall),
             1 => Ok(Location::Empty),
             2 => Ok(Location::OxygenSystem),
-            _ => Err(failure::format_err!(
+            _ => Err(anyhow::format_err!(
                 "Can't convert value {} to Location",
                 value
             )),
@@ -232,7 +232,7 @@ impl From<IntComp> for Bot {
 }
 
 impl Bot {
-    pub fn step(&mut self, direction: Direction) -> Result<(Location, Position), failure::Error> {
+    pub fn step(&mut self, direction: Direction) -> anyhow::Result<(Location, Position)> {
         let input: Value = direction.into();
         log::info!(
             "step {:?}: {}; {:?} -> {:?}",
@@ -246,13 +246,13 @@ impl Bot {
         let processed = self.program.process_input(input)?;
         log::info!("  {}", processed);
         if !processed {
-            return Err(failure::format_err!("Error: Could not process input"));
+            return Err(anyhow::format_err!("Error: Could not process input"));
         }
 
         let state = self.program.run_to_io()?;
         log::info!("  {}", state);
         let out = match self.program.consume_output() {
-            None => return Err(failure::format_err!("Error: Could not consume output")),
+            None => return Err(anyhow::format_err!("Error: Could not consume output")),
             Some(v) => v,
         };
 
@@ -267,7 +267,7 @@ impl Bot {
         Ok((loc, self.position))
     }
 
-    pub fn explore(&mut self) -> Result<Area, failure::Error> {
+    pub fn explore(&mut self) -> anyhow::Result<Area> {
         // TODO: doesn't explore inner areas
 
         let mut known = Area::default();
@@ -319,7 +319,7 @@ impl Bot {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 15")
@@ -341,7 +341,7 @@ fn main() -> Result<(), failure::Error> {
     let line: String = buf_reader
         .lines()
         .next()
-        .ok_or_else(|| failure::err_msg("No line found"))??;
+        .ok_or_else(|| anyhow::format_err!("No line found"))??;
 
     let cp: IntComp = str::parse(&line)?;
 
@@ -358,16 +358,4 @@ fn main() -> Result<(), failure::Error> {
     println!("Furthest point from Oxygen: {}", max);
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use test_env_log::test;
-
-    // use super::*;
-
-    #[test]
-    fn test_thing() -> Result<(), failure::Error> {
-        Ok(())
-    }
 }

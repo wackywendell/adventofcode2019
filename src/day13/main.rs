@@ -9,8 +9,8 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 use clap::{App, Arg};
-use failure::Fail;
 use log::debug;
+use thiserror::Error;
 
 use aoc::intcomp::{IntComp, OutputVec, Stopped};
 
@@ -43,8 +43,8 @@ impl fmt::Display for Tile {
     }
 }
 
-#[derive(Fail, Debug)]
-#[fail(display = "No known tile of value {}", value)]
+#[derive(Error, Debug)]
+#[error("No known tile of value {}", value)]
 pub struct TileError {
     value: Value,
 }
@@ -119,7 +119,7 @@ impl Game {
         prev
     }
 
-    pub fn from_values<I: IntoIterator<Item = Value>>(iter: I) -> Result<Self, failure::Error> {
+    pub fn from_values<I: IntoIterator<Item = Value>>(iter: I) -> anyhow::Result<Self> {
         let mut game: Game = Default::default();
         game.update(iter)?;
         Ok(game)
@@ -135,7 +135,7 @@ impl Game {
         row.get(ix as usize).copied()
     }
 
-    pub fn update<I: IntoIterator<Item = Value>>(&mut self, iter: I) -> Result<(), failure::Error> {
+    pub fn update<I: IntoIterator<Item = Value>>(&mut self, iter: I) -> anyhow::Result<()> {
         let (mut x, mut y) = (None, None);
 
         for val in iter {
@@ -206,7 +206,7 @@ impl fmt::Display for Game {
 
 // Mostly unused
 impl FromStr for Game {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let pieces = s.trim().split(',');
@@ -252,7 +252,7 @@ impl Arcade {
         }
     }
 
-    fn update(&mut self) -> Result<Stopped, failure::Error> {
+    fn update(&mut self) -> anyhow::Result<Stopped> {
         self.outputs.0.clear();
         let state = self.software.process(Vec::new(), &mut self.outputs)?;
         let last_ball = self.game.ball;
@@ -264,7 +264,7 @@ impl Arcade {
         Ok(state)
     }
 
-    pub fn step(&mut self, direction: Direction) -> Result<bool, failure::Error> {
+    pub fn step(&mut self, direction: Direction) -> anyhow::Result<bool> {
         self.outputs.0.clear();
         match self.software.run_to_io()? {
             Stopped::Halted => return Ok(false),
@@ -283,7 +283,7 @@ impl Arcade {
         }
     }
 
-    pub fn auto(&mut self) -> Result<bool, failure::Error> {
+    pub fn auto(&mut self) -> anyhow::Result<bool> {
         // let (prediction, paddle) = match (self.predict(), self.game.paddle) {
         //     (Some((_, prediction)), Some((_, paddle))) => (prediction, paddle),
         //     _ => {
@@ -363,7 +363,7 @@ impl Arcade {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 13")
@@ -385,7 +385,7 @@ fn main() -> Result<(), failure::Error> {
     let line: String = buf_reader
         .lines()
         .next()
-        .ok_or_else(|| failure::err_msg("No line found"))??;
+        .ok_or_else(|| anyhow::format_err!("No line found"))??;
 
     let orig_cp: IntComp = str::parse(&line)?;
     let mut cp = orig_cp.clone();
@@ -442,16 +442,4 @@ fn main() -> Result<(), failure::Error> {
     println!("-------------------- Final Score: {}", arcade.game.score);
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use test_env_log::test;
-
-    // use super::*;
-
-    #[test]
-    fn test_thing() -> Result<(), failure::Error> {
-        Ok(())
-    }
 }

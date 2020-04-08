@@ -46,7 +46,7 @@ impl std::ops::Mul<i64> for &Operand {
 }
 
 impl FromStr for Operand {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let splits: Vec<_> = s.split(' ').collect();
@@ -58,7 +58,7 @@ impl FromStr for Operand {
                     chemical: cs.to_string(),
                 });
             }
-            _ => return Err(failure::format_err!("Cannot convert '{}' to Operand", s)),
+            _ => return Err(anyhow::format_err!("Cannot convert '{}' to Operand", s)),
         };
     }
 }
@@ -84,17 +84,17 @@ impl fmt::Display for Reaction {
 }
 
 impl FromStr for Reaction {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let splits: Vec<_> = s.split(" => ").collect();
         let (inputs, output) = match splits.as_slice() {
             &[inp, outp] => (inp, outp),
-            _ => return Err(failure::format_err!("Cannot convert '{}' to Reactions", s)),
+            _ => return Err(anyhow::format_err!("Cannot convert '{}' to Reactions", s)),
         };
 
         let output: Operand = str::parse(output)?;
-        let inputs: Result<Vec<Operand>, failure::Error> =
+        let inputs: anyhow::Result<Vec<Operand>> =
             inputs.split(", ").map(|rs| str::parse(rs)).collect();
 
         Ok(Reaction {
@@ -323,7 +323,7 @@ impl FromIterator<Reaction> for Reactions {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 14")
@@ -368,7 +368,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_reaction() -> Result<(), failure::Error> {
+    fn test_reaction() -> anyhow::Result<()> {
         let r: Reaction = str::parse("1 A, 2 BB => 3 CCC")?;
         let expected = Reaction {
             input: vec![Operand::new(1, "A"), Operand::new(2, "BB")],
@@ -390,7 +390,7 @@ mod tests {
     ";
 
     #[test]
-    fn test_reactions() -> Result<(), failure::Error> {
+    fn test_reactions() -> anyhow::Result<()> {
         let r: Reactions = parse_iter(EXAMPLE1.lines())?;
 
         assert_eq!(r.values.len(), 6);
@@ -412,7 +412,7 @@ mod tests {
     ";
 
     #[test]
-    fn test_reactions2() -> Result<(), failure::Error> {
+    fn test_reactions2() -> anyhow::Result<()> {
         let r: Reactions = parse_iter(EXAMPLE2.lines())?;
 
         assert_eq!(r.values.len(), 7);
@@ -436,7 +436,7 @@ mod tests {
     ";
 
     #[test]
-    fn test_reactions3() -> Result<(), failure::Error> {
+    fn test_reactions3() -> anyhow::Result<()> {
         let r: Reactions = parse_iter(EXAMPLE3.lines())?;
 
         let sources = r.sources(Operand::new(1, "FUEL"));
@@ -462,7 +462,7 @@ mod tests {
     ";
 
     #[test]
-    fn test_reactions4() -> Result<(), failure::Error> {
+    fn test_reactions4() -> anyhow::Result<()> {
         let r: Reactions = parse_iter(EXAMPLE4.lines())?;
 
         let sources = r.sources(Operand::new(1, "FUEL"));
@@ -493,7 +493,7 @@ mod tests {
     ";
 
     #[test]
-    fn test_reactions5() -> Result<(), failure::Error> {
+    fn test_reactions5() -> anyhow::Result<()> {
         let r: Reactions = parse_iter(EXAMPLE5.lines())?;
 
         let sources = r.sources(Operand::new(1, "FUEL"));
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn test_max_produced() -> Result<(), failure::Error> {
+    fn test_max_produced() -> anyhow::Result<()> {
         let input_size: i64 = 1_000_000_000_000;
         let input = Operand::new(input_size, "ORE");
 

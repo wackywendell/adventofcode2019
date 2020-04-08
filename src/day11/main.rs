@@ -5,6 +5,8 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::iter::FromIterator;
 
+
+
 use clap::{App, Arg};
 use log::debug;
 
@@ -70,16 +72,13 @@ impl From<Color> for i64 {
 }
 
 impl TryFrom<i64> for Color {
-    type Error = failure::Error;
+    type Error = anyhow::Error;
 
     fn try_from(value: i64) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Color::Black),
             1 => Ok(Color::White),
-            _ => Err(failure::err_msg(format!(
-                "Unexpected value for color: {}",
-                value
-            ))),
+            _ => Err(anyhow::format_err!("Unexpected value for color: {}", value)),
         }
     }
 }
@@ -110,7 +109,7 @@ impl Spaceship {
         }
     }
 
-    pub fn step(&mut self) -> Result<bool, failure::Error> {
+    pub fn step(&mut self) -> anyhow::Result<bool> {
         match self.program.run_to_io()? {
             Stopped::Halted => return Ok(false),
             Stopped::Input => {
@@ -146,7 +145,7 @@ impl Spaceship {
         Ok(true)
     }
 
-    pub fn run(&mut self) -> Result<(), failure::Error> {
+    pub fn run(&mut self) -> anyhow::Result<()> {
         while self.step()? {}
 
         Ok(())
@@ -172,7 +171,7 @@ impl Spaceship {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 11")
@@ -194,7 +193,7 @@ fn main() -> Result<(), failure::Error> {
     let line: String = buf_reader
         .lines()
         .next()
-        .ok_or_else(|| failure::err_msg("No line found"))??;
+        .ok_or_else(|| anyhow::format_err!("No line found"))??;
     let ints: Vec<i64> = line
         .trim()
         .split(',')
@@ -218,16 +217,4 @@ fn main() -> Result<(), failure::Error> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use test_env_log::test;
-
-    // use super::*;
-
-    #[test]
-    fn test_thing() -> Result<(), failure::Error> {
-        Ok(())
-    }
 }

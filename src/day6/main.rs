@@ -7,8 +7,8 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 use clap::{App, Arg};
-use err_derive::Error;
 use log::debug;
+use thiserror::Error;
 
 use aoc::parse::parse_err_iter;
 
@@ -25,7 +25,7 @@ impl fmt::Display for Orbit {
 }
 
 #[derive(Error, Debug)]
-#[error(display = "Orbit not found: {}", _0)]
+#[error("Orbit not found: {}", _0)]
 pub struct OrbitNotFound(String);
 
 impl FromStr for Orbit {
@@ -123,7 +123,7 @@ impl From<&[Orbit]> for Orbits {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 6")

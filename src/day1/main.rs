@@ -28,7 +28,7 @@ pub fn iterative_cost(mass: i64) -> i64 {
     sum
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 1")

@@ -33,19 +33,19 @@ impl Image {
         layers: usize,
         height: usize,
         width: usize,
-    ) -> Result<Image, failure::Error> {
+    ) -> anyhow::Result<Image> {
         log::debug!("layers: {}, height: {}, width: {}", layers, height, width);
 
         let size = width * height;
         if input.len() != layers * size {
-            return Err(failure::err_msg(format!(
+            return Err(anyhow::format_err!(
                 "Found {} pixels; expected {}*{}*{}={}",
                 input.len(),
                 layers,
                 height,
                 width,
                 layers * size
-            )));
+            ));
         }
 
         let mut pixels: Vec<Vec<Vec<u8>>> = Vec::with_capacity(layers);
@@ -122,18 +122,18 @@ pub fn parse_image(
     layers: usize,
     height: usize,
     width: usize,
-) -> Result<Image, failure::Error> {
+) -> anyhow::Result<Image> {
     let digits = parse_digits(line)?;
     Image::new(digits, layers, height, width)
 }
 
-fn parse_digits(line: &str) -> Result<Vec<u8>, failure::Error> {
+fn parse_digits(line: &str) -> anyhow::Result<Vec<u8>> {
     let mut ints = Vec::new();
 
     for c in line.chars() {
         let n = match c.to_digit(10) {
             None => {
-                return Err(failure::err_msg(format!("Expected digit, found '{}'", c)));
+                return Err(anyhow::format_err!("Expected digit, found '{}'", c));
             }
             Some(n) => n,
         };
@@ -143,7 +143,7 @@ fn parse_digits(line: &str) -> Result<Vec<u8>, failure::Error> {
     Ok(ints)
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 8")
@@ -224,7 +224,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse() -> Result<(), failure::Error> {
+    fn test_parse() -> anyhow::Result<()> {
         let img = parse_image("123456789012", 2, 2, 3)?;
 
         assert_eq!(
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn test_counts() -> Result<(), failure::Error> {
+    fn test_counts() -> anyhow::Result<()> {
         let img = parse_image("123456789012", 2, 2, 3)?;
 
         let counts0 = img.layer_count(0);
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_render() -> Result<(), failure::Error> {
+    fn test_render() -> anyhow::Result<()> {
         let img = parse_image("0222112222120000", 4, 2, 2)?;
 
         let rendered = img.render();

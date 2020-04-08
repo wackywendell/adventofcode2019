@@ -58,7 +58,7 @@ impl fmt::Display for Vector {
 }
 
 impl FromStr for Vector {
-    type Err = failure::Error;
+    type Err = anyhow::Error;
     // type Err = Box<dyn std::error::Error>;
     // type Err = text_io::Error;
 
@@ -218,7 +218,7 @@ impl Repeats {
     }
 }
 
-fn main() -> Result<(), failure::Error> {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let matches = App::new("Day 12")
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse() -> Result<(), failure::Error> {
+    fn test_parse() -> anyhow::Result<()> {
         let system = parse_system(EXAMPLE)?;
 
         assert_eq!(system.moons[0].r, Vector(-1, 0, 2));
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_moon_parse() -> Result<(), failure::Error> {
+    fn test_moon_parse() -> anyhow::Result<()> {
         log::info!("Parsing 0-1");
         let moon: Moon = "pos=<x=0, y=0, z=0>, vel=<x=1, y=1, z=1>".parse()?;
         assert_eq!(moon.r, Vector(0, 0, 0));
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn test_run() -> Result<(), failure::Error> {
+    fn test_run() -> anyhow::Result<()> {
         let mut system = parse_system(EXAMPLE)?;
 
         let stages: Vec<&str> = vec![
@@ -415,7 +415,7 @@ mod tests {
     "#;
 
     #[test]
-    fn test_example2() -> Result<(), failure::Error> {
+    fn test_example2() -> anyhow::Result<()> {
         let mut system = parse_system(EXAMPLE2)?;
 
         for _ in 0..100 {
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn test_repeats() -> Result<(), failure::Error> {
+    fn test_repeats() -> anyhow::Result<()> {
         let system = parse_system(EXAMPLE)?;
         let mut repeats = Repeats::new(system);
         let (rx, ry, rz) = repeats.run();
@@ -447,7 +447,7 @@ mod tests {
     "#;
 
     #[test]
-    fn test_many_repeats() -> Result<(), failure::Error> {
+    fn test_many_repeats() -> anyhow::Result<()> {
         let system = parse_system(EXAMPLE3)?;
         let mut repeats = Repeats::new(system);
         let (rx, ry, rz) = repeats.run();
