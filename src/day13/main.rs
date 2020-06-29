@@ -314,7 +314,7 @@ impl Arcade {
 
     // Location of the ball as (y, x)
     pub fn ball(&self) -> Option<(Value, Value)> {
-        return self.game.ball;
+        self.game.ball
     }
 
     // Predicted next location of the ball as (y, x). Prediction ignores paddle.
@@ -419,7 +419,7 @@ fn main() -> anyhow::Result<()> {
         for i in 0..=arcade.game.shape().1 {
             print!("{}", i % 10);
         }
-        println!("");
+        println!();
         println!("-------------------- Score: {}", arcade.game.score);
         // let (by, bx) = match arcade.ball() {
         //     None => continue,

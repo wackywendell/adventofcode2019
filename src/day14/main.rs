@@ -50,16 +50,16 @@ impl FromStr for Operand {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let splits: Vec<_> = s.split(' ').collect();
-        match splits.as_slice() {
-            &[ns, cs] => {
+        match *splits.as_slice() {
+            [ns, cs] => {
                 let n: i64 = ns.parse()?;
-                return Ok(Operand {
+                Ok(Operand {
                     quantity: n,
                     chemical: cs.to_string(),
-                });
+                })
             }
-            _ => return Err(anyhow::format_err!("Cannot convert '{}' to Operand", s)),
-        };
+            _ => Err(anyhow::format_err!("Cannot convert '{}' to Operand", s)),
+        }
     }
 }
 
@@ -88,8 +88,8 @@ impl FromStr for Reaction {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let splits: Vec<_> = s.split(" => ").collect();
-        let (inputs, output) = match splits.as_slice() {
-            &[inp, outp] => (inp, outp),
+        let (inputs, output) = match *splits.as_slice() {
+            [inp, outp] => (inp, outp),
             _ => return Err(anyhow::format_err!("Cannot convert '{}' to Reactions", s)),
         };
 
@@ -99,7 +99,7 @@ impl FromStr for Reaction {
 
         Ok(Reaction {
             input: inputs?,
-            output: output,
+            output,
         })
     }
 }
@@ -352,7 +352,7 @@ fn main() -> anyhow::Result<()> {
 
     let input_size: i64 = 1_000_000_000_000;
     let input = Operand::new(input_size, "ORE");
-    let (inp, out) = reactions.max_produced(input.clone(), "FUEL");
+    let (inp, out) = reactions.max_produced(input, "FUEL");
 
     println!("Can produce {} FUEL with {} ORE", out, inp);
 
