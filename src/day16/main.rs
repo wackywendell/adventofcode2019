@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -15,6 +16,14 @@ impl Signal {
     pub fn new(values: Vec<i64>) -> Signal {
         Signal { values }
     }
+
+    pub fn repeated(values: Vec<i64>, count: usize) -> Signal {
+        let total = values.len() * count;
+        let repeated_values = values.iter().copied().cycle().take(total).collect();
+        Signal {
+            values: repeated_values,
+        }
+    }
 }
 
 impl FromStr for Signal {
@@ -30,6 +39,76 @@ impl FromStr for Signal {
             .collect();
 
         Ok(Signal::new(values?))
+    }
+}
+
+impl fmt::Display for Signal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<")?;
+        for &value in &self.values {
+            write!(f, "{}", value)?;
+        }
+        write!(f, ">")
+    }
+}
+
+pub struct RepeatedSignalPortion {
+    pub values: Vec<i64>,
+    buf: Vec<i64>,
+    pub offset: usize,
+    pub len: usize,
+}
+
+impl RepeatedSignalPortion {
+    pub fn repeated(values: Vec<i64>, repeats: usize, offset: usize, len: usize) -> Self {
+        let total = values.len() * repeats;
+        assert!(offset * 2 > total, "Offset must be more than half");
+        RepeatedSignalPortion {
+            values: values
+                .iter()
+                .copied()
+                .cycle()
+                .skip(offset)
+                .take(total - offset)
+                .collect(),
+            buf: Vec::new(),
+            offset,
+            len,
+        }
+    }
+
+    pub fn transform(&mut self) {
+        let sz = self.values.len();
+        self.buf.clear();
+        self.buf.resize(sz, 0);
+        self.buf[sz - 1] = self.values[sz - 1];
+        for ix in (0..sz - 1).rev() {
+            self.buf[ix] = ones_digit(self.values[ix] + self.buf[ix + 1]);
+        }
+
+        std::mem::swap(&mut self.buf, &mut self.values);
+    }
+
+    pub fn from_line(
+        input: &str,
+        repeats: usize,
+        offset_digits: usize,
+        len: usize,
+    ) -> anyhow::Result<Self> {
+        let offset_str: String = input.chars().take(offset_digits).collect();
+        let offset: usize = str::parse(&offset_str)?;
+        let signal = Signal::from_str(input)?;
+        Ok(Self::repeated(signal.values, repeats, offset, len))
+    }
+}
+
+impl fmt::Display for RepeatedSignalPortion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[")?;
+        for &value in &self.values[..self.len] {
+            write!(f, "{}", value)?;
+        }
+        write!(f, "]")
     }
 }
 
@@ -127,16 +206,22 @@ fn main() -> anyhow::Result<()> {
     debug!("Using input {}", input_path);
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
-
-    for maybe_line in buf_reader.lines() {
-        let line = maybe_line?;
-        let signal: Signal = line.parse()?;
-        let output = BasicPattern::repeated_transform(&signal, 100);
-        for n in &output.values[..8] {
-            print!("{}", n);
-        }
-        println!();
+    let line = buf_reader
+        .lines()
+        .next()
+        .ok_or_else(|| anyhow::format_err!("No line found!"))??;
+    let signal: Signal = line.parse()?;
+    let output = BasicPattern::repeated_transform(&signal, 100);
+    for n in &output.values[..8] {
+        print!("{}", n);
     }
+    println!();
+    println!("-- Part Two --");
+    let mut repeated = RepeatedSignalPortion::from_line(&line, 10000, 7, 8)?;
+    for _ in 0..100 {
+        repeated.transform();
+    }
+    println!("{}", repeated);
 
     Ok(())
 }
@@ -211,6 +296,60 @@ mod tests {
         let output = BasicPattern::repeated_transform(&signal, 100);
         let expected: Signal = str::parse("52432133")?;
         assert_eq!(output.values[..8], expected.values[..]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_repeated_simple() -> anyhow::Result<()> {
+        let input: Signal = str::parse("12345678")?;
+        let repeats = 10;
+        let offset = 64;
+        let len = 8;
+        let mut output: Signal = Signal::repeated(input.values.clone(), repeats);
+        let mut repeated = RepeatedSignalPortion::repeated(input.values, repeats, offset, len);
+
+        for i in 0..=20 {
+            println!(
+                "{:2}: {}\n    {}",
+                i,
+                Signal::new(output.values[offset..offset + len].to_owned()),
+                repeated
+            );
+            output = BasicPattern::transform(&output);
+            repeated.transform();
+
+            assert_eq!(output.values[offset..offset + len], repeated.values[..len]);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_repeated() -> anyhow::Result<()> {
+        let mut signal =
+            RepeatedSignalPortion::from_line("03036732577212944063491565474664", 10000, 7, 8)?;
+        for _ in 0..100 {
+            signal.transform();
+        }
+        let expected: Signal = str::parse("84462026")?;
+        assert_eq!(signal.values[..8], expected.values[..]);
+
+        let mut signal =
+            RepeatedSignalPortion::from_line("02935109699940807407585447034323", 10000, 7, 8)?;
+        for _ in 0..100 {
+            signal.transform();
+        }
+        let expected: Signal = str::parse("78725270")?;
+        assert_eq!(signal.values[..8], expected.values[..]);
+
+        let mut signal =
+            RepeatedSignalPortion::from_line("03081770884921959731165446850517", 10000, 7, 8)?;
+        for _ in 0..100 {
+            signal.transform();
+        }
+        let expected: Signal = str::parse("53553731")?;
+        assert_eq!(signal.values[..8], expected.values[..]);
 
         Ok(())
     }
