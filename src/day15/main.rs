@@ -57,6 +57,7 @@ impl Direction {
 impl Add<Direction> for Position {
     type Output = Position;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, dir: Direction) -> Self {
         let (y, x) = self;
         match dir {
@@ -127,13 +128,9 @@ impl Area {
 
         while let Some((dist, pos)) = queue.pop_front() {
             log::info!("Trying {}: {:?}", dist, pos);
-            match self.locations.get(&pos) {
-                Some(Location::Wall) => {
-                    log::info!("  Hit a Wall");
-                    continue;
-                }
-
-                _ => {}
+            if let Some(Location::Wall) = self.locations.get(&pos) {
+                log::info!("  Hit a Wall");
+                continue;
             }
 
             if let Some(&d) = seen.get(&pos) {
@@ -179,7 +176,7 @@ impl<'a> fmt::Display for AreaWithBot<'a> {
         let (mut minx, mut maxx) = (0, 0);
         let (mut miny, mut maxy) = (0, 0);
 
-        for (&(x, y), _) in self.locations {
+        for &(x, y) in self.locations.keys() {
             if x < minx {
                 minx = x;
             }
