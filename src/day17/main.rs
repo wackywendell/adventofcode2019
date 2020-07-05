@@ -5,6 +5,8 @@ use std::io::BufReader;
 use clap::{App, Arg};
 use log::debug;
 
+use aoc::intcomp::{IntComp, OutputVec, Stopped};
+
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
@@ -24,9 +26,22 @@ fn main() -> anyhow::Result<()> {
     let file = File::open(input_path)?;
     let buf_reader = BufReader::new(file);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
-    }
+    let line: String = buf_reader
+        .lines()
+        .next()
+        .ok_or_else(|| anyhow::format_err!("No line found"))??;
+
+    let mut cp: IntComp = str::parse(&line)?;
+
+    let mut outputs = OutputVec::new();
+    cp.process(Vec::new(), &mut outputs)?
+        .expect(Stopped::Halted)?;
+
+    let vs = outputs.0;
+    println!("Found {} Outputs", vs.len());
+    let ascii: Vec<u8> = vs.iter().copied().map(|n| n as u8).collect();
+    let s = String::from_utf8(ascii).expect("Expected ASCII");
+    println!("{}", s);
 
     Ok(())
 }
