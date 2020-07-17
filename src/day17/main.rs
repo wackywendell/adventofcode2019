@@ -308,19 +308,7 @@ fn main() -> anyhow::Result<()> {
     let stringed = String::from_utf8(ascii)?;
     println!("{}", stringed);
 
-    let mut grid = Grid::from_str(&stringed)?;
-    // let bot = grid.bot;
-    // grid.bot = grid.bot
-    //     + Compass::East
-    //     + Compass::East
-    //     + Compass::North
-    //     + Compass::North
-    //     + Compass::North
-    //     + Compass::North;
-    // println!(
-    //     "Bot: ({}, {}) -> ({}, {})",
-    //     bot.0, bot.1, grid.bot.0, grid.bot.1
-    // );
+    let grid = Grid::from_str(&stringed)?;
     println!("Grid:\n{}", grid);
 
     let intersections = grid.intersections();
