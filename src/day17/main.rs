@@ -99,6 +99,7 @@ impl fmt::Display for Turn {
     }
 }
 
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Instruction {
     pub turn: Turn,
     pub steps: Value,
@@ -270,6 +271,98 @@ impl fmt::Display for Grid {
 
         Ok(())
     }
+}
+
+struct InstructionSet(Vec<Instruction>);
+
+impl fmt::Display for InstructionSet {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        for instr in &self.0 {
+            if !first {
+                f.write_str(",")?;
+            } else {
+                first = false;
+            }
+            write!(f, "{},{}", instr.turn, instr.steps)?;
+        }
+
+        Ok(())
+    }
+}
+
+fn repeats<T: Eq>(sub: &[T], larger: &[T]) -> Vec<usize> {
+    let sz = sub.len();
+    let mut ixs = vec![];
+    let mut ix = 0usize;
+    loop {
+        if ix + sz > larger.len() {
+            break;
+        }
+        let matches = larger[ix..ix + sz].iter().zip(sub).all(|(a, b)| a == b);
+        if matches {
+            ixs.push(ix);
+            ix += sz;
+            continue;
+        }
+        ix += 1;
+    }
+
+    ixs
+}
+
+enum Compressing {
+    Routine(usize),
+    Section(Vec<Instruction>),
+}
+
+fn compress(instrs: Vec<Instruction>) {
+    // (instruction, count)
+    let mut sections = vec![Compressing::Section(instrs)];
+
+    loop {
+        let first_section = sections
+            .iter()
+            .filter_map(|c| match c {
+                Compressing::Section(ref s) => Some(s),
+                Compressing::Routine(_) => None,
+            })
+            .next();
+        let first = match first_section {
+            None => break,
+            Some(ref s) => s,
+        };
+
+        let mut best = (None, 0);
+        for reps in 1..20usize {
+            let routine = InstructionSet(first[0..reps].iter().copied().collect());
+            let len = routine.to_string().len();
+            if len > 20 {
+                break;
+            }
+            let mut locs = vec![];
+            for (si, sec) in sections.iter().enumerate() {
+                match sec {
+                    Compressing::Routine(_) => continue,
+                    Compressing::Section(ref s) => {
+                        let ixs = repeats(&routine.0, s);
+                        for ix in ixs {
+                            locs.push((si, ix));
+                        }
+                    }
+                }
+            }
+
+            let saved = locs.len() * len;
+
+            best = match best {
+                (Some(br), bs) if bs > saved => (Some(br), bs),
+                (_, _) => (Some(routine), saved),
+            };
+        }
+    }
+
+    unimplemented!()
 }
 
 fn main() -> anyhow::Result<()> {
