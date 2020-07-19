@@ -333,7 +333,7 @@ fn compress(instrs: Vec<Instruction>) {
             Some(ref s) => s,
         };
 
-        let mut best = (None, 0);
+        let mut best = None;
         for reps in 1..20usize {
             let routine = InstructionSet(first[0..reps].iter().copied().collect());
             let len = routine.to_string().len();
@@ -356,10 +356,28 @@ fn compress(instrs: Vec<Instruction>) {
             let saved = locs.len() * len;
 
             best = match best {
-                (Some(br), bs) if bs > saved => (Some(br), bs),
-                (_, _) => (Some(routine), saved),
+                Some((br, blocs)) if br.len()*blocs.len() > saved => (Some(br), bs),
+            _ => Some((routine, locs)),
             };
         }
+
+        let routine = match best {
+            (None, _) => panic!("This shouldn't happen!"),
+            (Some(r), _) => r,
+        };
+
+        let new_sections = Vec::with_capacity(sections.len());
+        for s in sections.drain() {
+            let sec = match sec {
+                Compressing::Routine(_) => continue,
+                Compressing::Section(ref s) => {
+                    let ixs = repeats(&routine.0, s);
+                    for ix in ixs {
+                        locs.push((si, ix));
+                    }
+                }
+            }
+        }   
     }
 
     unimplemented!()
@@ -467,10 +485,9 @@ mod tests {
 
         Ok(())
     }
-
     #[test]
     fn test_instrs() -> anyhow::Result<()> {
-        let grid = Grid::from_str(EXAMPLE2)?;
+        let grid = Grid::from_str(EXAMPLE2MPLE2)?;
         let instrs = grid.instructions()?;
 
         let mut s = String::new();
@@ -485,4 +502,5 @@ mod tests {
 
         Ok(())
     }
+}
 }
