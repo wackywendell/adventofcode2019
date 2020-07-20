@@ -313,7 +313,9 @@ fn repeats<T: Eq>(sub: &[T], larger: &[T]) -> Vec<usize> {
 }
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Routine {
+pub struct Routine<'a> {
+    instructions: &'a [Instruction],
+
     // start is inclusive
     start: usize,
     // end is non-inclusive
@@ -321,6 +323,23 @@ pub struct Routine {
 
     // id is last so derived sort is based on (start, end)
     id: usize,
+}
+
+impl<'a> fmt::Display for Routine<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Routine[{}:{}-{}](", self.id, self.start, self.end)?;
+        let mut first = true;
+        for instr in &self.instructions[self.start..self.end] {
+            if !first {
+                f.write_str(",")?;
+            } else {
+                first = false;
+            }
+            write!(f, "{},{}", instr.turn, instr.steps)?;
+        }
+
+        write!(f, ")")
+    }
 }
 
 pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
@@ -362,6 +381,7 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
         let min_length = 2;
         for end in start_ix + min_length..=end_ix {
             let routine = Routine {
+                instructions: instrs,
                 start: start_ix,
                 end,
                 id: next_id,
@@ -382,6 +402,7 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
                 let repeated = repeats(&sub_instrs.0, &instrs[open_space.clone()]);
                 for sub_ix in repeated {
                     cur_repeats.push(Routine {
+                        instructions: instrs,
                         start: open_space.start + sub_ix,
                         end: open_space.start + sub_ix + sub_len,
                         id: routine.id,
@@ -394,6 +415,7 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
                 let repeated = repeats(&sub_instrs.0, &instrs[open_space.clone()]);
                 for sub_ix in repeated {
                     cur_repeats.push(Routine {
+                        instructions: instrs,
                         start: open_space.start + sub_ix,
                         end: open_space.start + sub_ix + sub_len,
                         id: routine.id,
