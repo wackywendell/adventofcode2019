@@ -376,9 +376,17 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
         }
 
         // Search for the subroutine starting at start_ix that saves the most
-        let mut best: (Vec<Routine>, usize) = (Vec::new(), 0);
+        let mut best: (Vec<Routine>, i64) = (Vec::new(), -1);
         // A subroutine must be at least 2 long
         let min_length = 2;
+
+        if end_ix - start_ix < min_length {
+            panic!(
+                "Can't handle a routine {}-{} shorter than {}",
+                start_ix, end_ix, min_length
+            );
+        }
+
         for end in start_ix + min_length..=end_ix {
             let routine = Routine {
                 instructions: instrs,
@@ -387,6 +395,10 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
                 id: next_id,
             };
             let sub_instrs = InstructionSet(instrs[routine.start..routine.end].to_owned());
+            if sub_instrs.to_string().len() > 19 {
+                // This is too long, not allowed
+                break;
+            }
             let sub_len = routine.end - routine.start;
             let mut cur_repeats = vec![routine];
 
@@ -425,7 +437,7 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
 
             // We've found all our repeats; let's see if they are "the best"
             // "the best" is defined as # of instructions that will be "saved"
-            let score = sub_len * (cur_repeats.len() - 1);
+            let score: i64 = (sub_len as i64 * sub_len as i64) * (cur_repeats.len() as i64 - 1);
             if score > best.1 {
                 best = (cur_repeats, score);
             }
@@ -496,7 +508,11 @@ fn main() -> anyhow::Result<()> {
     }
 
     let reps = routines(&instrs);
-    println!("Routines: {:?}", reps);
+
+    println!("Routines:");
+    for r in &reps {
+        println!("  {}", r);
+    }
 
     Ok(())
 }
