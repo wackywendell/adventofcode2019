@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::cmp::Ordering::*;
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::File;
@@ -274,12 +276,25 @@ impl fmt::Display for Grid {
     }
 }
 
-struct InstructionSet(Vec<Instruction>);
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+struct InstructionSet<'a>(Cow<'a, [Instruction]>);
 
-impl fmt::Display for InstructionSet {
+impl<'a> From<&'a [Instruction]> for InstructionSet<'a> {
+    fn from(instructions: &'a [Instruction]) -> Self {
+        InstructionSet(Cow::Borrowed(instructions))
+    }
+}
+
+impl From<Vec<Instruction>> for InstructionSet<'static> {
+    fn from(instructions: Vec<Instruction>) -> Self {
+        InstructionSet(Cow::Owned(instructions))
+    }
+}
+
+impl<'a> fmt::Display for InstructionSet<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut first = true;
-        for instr in &self.0 {
+        for instr in self.0.as_ref() {
             if !first {
                 f.write_str(",")?;
             } else {
@@ -322,30 +337,105 @@ pub struct Routine<'a> {
     end: usize,
 
     // id is last so derived sort is based on (start, end)
-    id: usize,
+    id: u8,
 }
 
 impl<'a> fmt::Display for Routine<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Routine[{}:{}-{}](", self.id, self.start, self.end)?;
-        let mut first = true;
-        for instr in &self.instructions[self.start..self.end] {
-            if !first {
-                f.write_str(",")?;
-            } else {
-                first = false;
-            }
-            write!(f, "{},{}", instr.turn, instr.steps)?;
-        }
-
-        write!(f, ")")
+        let instr_set = InstructionSet::from(&self.instructions[self.start..self.end]);
+        write!(
+            f,
+            "Routine[{}:{}-{}]({})",
+            self.id, self.start, self.end, instr_set
+        )
     }
 }
 
-pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
+impl<'a> From<Routine<'a>> for InstructionSet<'a> {
+    fn from(routine: Routine<'a>) -> InstructionSet<'a> {
+        InstructionSet::from(&routine.instructions[routine.start..routine.end])
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RoutineSet<'a> {
+    routines: Vec<InstructionSet<'a>>,
+    main: Vec<u8>,
+}
+
+impl<'a> RoutineSet<'a> {
+    pub fn into_owned(self) -> RoutineSet<'static> {
+        let RoutineSet { mut routines, main } = self;
+        RoutineSet {
+            routines: routines
+                .drain(..)
+                .map(|instrs| InstructionSet::from(instrs.0.to_vec()))
+                .collect(),
+            main,
+        }
+    }
+
+    pub fn main_str(&self) -> String {
+        if self.main.is_empty() {
+            return String::new();
+        }
+        let mut first = true;
+        let start = b'A';
+        let mut chars = Vec::with_capacity(self.main.len() * 2 - 1);
+
+        for &r in &self.main {
+            if !first {
+                chars.push(b',');
+            }
+            first = false;
+            chars.push(r + start);
+        }
+
+        String::from_utf8(chars).unwrap()
+    }
+
+    pub fn routine_strs(&'a self) -> impl Iterator<Item = String> + 'a {
+        self.routines.iter().map(|r| r.to_string())
+    }
+
+    pub fn instructions(&self) -> String {
+        let mut instructions = self.main_str();
+        instructions.push('\n');
+        for s in self.routine_strs() {
+            instructions.push_str(&s);
+            instructions.push('\n');
+        }
+
+        instructions
+    }
+}
+
+impl<'a> From<Vec<Routine<'a>>> for RoutineSet<'a> {
+    fn from(routines: Vec<Routine<'a>>) -> Self {
+        let mut unique_routines = Vec::new();
+        let mut main = Vec::with_capacity(routines.len());
+        for &r in &routines {
+            main.push(r.id);
+            match r.id.cmp(&(unique_routines.len() as u8)) {
+                Less => continue,
+                Greater => panic!("Routines out of order!"),
+                Equal => {
+                    unique_routines.push(InstructionSet::from(r));
+                }
+            };
+        }
+
+        RoutineSet {
+            routines: unique_routines,
+            main,
+        }
+    }
+}
+
+pub fn routines(instrs: &[Instruction]) -> RoutineSet {
     let mut routines: Vec<Routine> = Vec::new();
     let mut start_ix = 0usize;
-    let mut next_id = 0usize;
+    let mut next_id = 0u8;
 
     loop {
         let mut end_ix = instrs.len();
@@ -394,7 +484,7 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
                 end,
                 id: next_id,
             };
-            let sub_instrs = InstructionSet(instrs[routine.start..routine.end].to_owned());
+            let sub_instrs = InstructionSet::from(&instrs[routine.start..routine.end]);
             if sub_instrs.to_string().len() > 19 {
                 // This is too long, not allowed
                 break;
@@ -450,7 +540,7 @@ pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
         next_id += 1;
     }
 
-    routines
+    RoutineSet::from(routines)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -506,13 +596,18 @@ fn main() -> anyhow::Result<()> {
     for i in &instrs {
         println!("  {}", i);
     }
-
+    println!("----------------------------------------");
+    println!("Compressed:");
     let reps = routines(&instrs);
-
-    println!("Routines:");
-    for r in &reps {
-        println!("  {}", r);
+    println!("{}", reps.main_str());
+    for s in reps.routine_strs() {
+        println!("{}", s);
     }
+
+    // println!("Routines:");
+    // for r in &reps {
+    //     println!("  {}", r);
+    // }
 
     Ok(())
 }
@@ -588,16 +683,36 @@ mod tests {
 
         let reps = routines(&instrs);
         println!("Routines: {:?}", reps);
-        let mut last_end = 0usize;
-        for r in &reps {
-            assert_eq!(r.start, last_end);
-            last_end = r.end;
-        }
-        assert_eq!(last_end, instrs.len());
-        let ids: Vec<usize> = reps.iter().map(|r| r.id).collect();
-        // A,B,C,B,A,C
-        let expected_ids: Vec<usize> = vec![0, 1, 2, 1, 0, 2];
-        assert_eq!(ids, expected_ids);
+        let size: usize = reps
+            .main
+            .iter()
+            .map(|&id| reps.routines[id as usize].0.len())
+            .sum();
+        assert_eq!(size, instrs.len());
+
+        let routine_instrs: Vec<Instruction> = reps
+            .main
+            .iter()
+            .map(|&id| reps.routines[id as usize].0.as_ref())
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(instrs, routine_instrs);
+
+        let expected_ids: Vec<u8> = vec![0, 1, 2, 1, 0, 2];
+        assert_eq!(reps.main, expected_ids);
+
+        let expected_instructions = vec![
+            65, 44, 66, 44, 67, 44, 66, 44, 65, 44, 67, 10, // Main routine: A,B,C,B,A,C
+            82, 44, 56, 44, 82, 44, 56, 10, // Function A:   R,8,R,8
+            // 82, 44, 52, 44, 82, 44, 52, 44, 82, 44, 56, 10, // Function B:   R,4,R,4,R,8
+            // 76, 44, 54, 44, 76, 44, 50, 10, // Function C:   L,6,L,2
+            82, 44, 52, 44, 82, 44, 52, 10, // Function B:   R,4,R,4
+            82, 44, 56, 44, 76, 44, 54, 44, 76, 44, 50, 10, // Function C:   R,8,L,6,L,2
+        ];
+        let expected_str = String::from_utf8(expected_instructions.clone()).unwrap();
+        assert_eq!(reps.instructions(), expected_str);
+        assert_eq!(reps.instructions().into_bytes(), expected_instructions);
 
         Ok(())
     }
