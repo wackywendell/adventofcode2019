@@ -41,6 +41,7 @@ impl fmt::Display for Compass {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl std::ops::Add<Compass> for Loc {
     type Output = Self;
 
@@ -266,7 +267,7 @@ impl fmt::Display for Grid {
                 write!(f, "{}", c)?;
             }
 
-            writeln!(f, "")?;
+            writeln!(f)?;
         }
 
         Ok(())
@@ -311,76 +312,111 @@ fn repeats<T: Eq>(sub: &[T], larger: &[T]) -> Vec<usize> {
     ixs
 }
 
-enum Compressing {
-    Routine(usize),
-    Section(Vec<Instruction>),
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Routine {
+    // start is inclusive
+    start: usize,
+    // end is non-inclusive
+    end: usize,
+
+    // id is last so derived sort is based on (start, end)
+    id: usize,
 }
 
-fn compress(instrs: Vec<Instruction>) {
-    // (instruction, count)
-    let mut sections = vec![Compressing::Section(instrs)];
+pub fn routines(instrs: &[Instruction]) -> Vec<Routine> {
+    let mut routines: Vec<Routine> = Vec::new();
+    let mut start_ix = 0usize;
+    let mut next_id = 0usize;
 
     loop {
-        let first_section = sections
-            .iter()
-            .filter_map(|c| match c {
-                Compressing::Section(ref s) => Some(s),
-                Compressing::Routine(_) => None,
-            })
-            .next();
-        let first = match first_section {
-            None => break,
-            Some(ref s) => s,
-        };
-
-        let mut best = None;
-        for reps in 1..20usize {
-            let routine = InstructionSet(first[0..reps].iter().copied().collect());
-            let len = routine.to_string().len();
-            if len > 20 {
-                break;
-            }
-            let mut locs = vec![];
-            for (si, sec) in sections.iter().enumerate() {
-                match sec {
-                    Compressing::Routine(_) => continue,
-                    Compressing::Section(ref s) => {
-                        let ixs = repeats(&routine.0, s);
-                        for ix in ixs {
-                            locs.push((si, ix));
-                        }
-                    }
+        let mut end_ix = instrs.len();
+        for r in &routines {
+            match (start_ix.cmp(&r.start), start_ix.cmp(&r.end)) {
+                (std::cmp::Ordering::Less, _) => {
+                    // Our routine start is before this section, all is well.
+                    // Set end_ix to the start of this routine, as the new
+                    // sub-routine can't be longer than that.
+                    end_ix = r.start;
+                    break;
+                }
+                (_, std::cmp::Ordering::Less) => {
+                    // Our routine starts within this, bump it
+                    start_ix = r.end;
+                    continue;
+                }
+                _ => {
+                    // This routine ends before the start_ix, so see the next
+                    continue;
                 }
             }
-
-            let saved = locs.len() * len;
-
-            best = match best {
-                Some((br, blocs)) if br.len()*blocs.len() > saved => (Some(br), bs),
-            _ => Some((routine, locs)),
-            };
         }
 
-        let routine = match best {
-            (None, _) => panic!("This shouldn't happen!"),
-            (Some(r), _) => r,
-        };
+        if start_ix >= instrs.len() {
+            // Routines cover the whole instruction set, so we're done.
+            break;
+        }
 
-        let new_sections = Vec::with_capacity(sections.len());
-        for s in sections.drain() {
-            let sec = match sec {
-                Compressing::Routine(_) => continue,
-                Compressing::Section(ref s) => {
-                    let ixs = repeats(&routine.0, s);
-                    for ix in ixs {
-                        locs.push((si, ix));
-                    }
+        // Search for the subroutine starting at start_ix that saves the most
+        let mut best: (Vec<Routine>, usize) = (Vec::new(), 0);
+        // A subroutine must be at least 2 long
+        let min_length = 2;
+        for end in start_ix + min_length..=end_ix {
+            let routine = Routine {
+                start: start_ix,
+                end,
+                id: next_id,
+            };
+            let sub_instrs = InstructionSet(instrs[routine.start..routine.end].to_owned());
+            let sub_len = routine.end - routine.start;
+            let mut cur_repeats = vec![routine];
+
+            let mut last_end = routine.end;
+            for r in &routines {
+                if r.start <= last_end {
+                    // No space between routines here
+                    continue;
+                }
+                let open_space = last_end..r.start;
+
+                last_end = r.end;
+                let repeated = repeats(&sub_instrs.0, &instrs[open_space.clone()]);
+                for sub_ix in repeated {
+                    cur_repeats.push(Routine {
+                        start: open_space.start + sub_ix,
+                        end: open_space.start + sub_ix + sub_len,
+                        id: routine.id,
+                    });
                 }
             }
-        }   
+
+            if last_end < instrs.len() {
+                let open_space = last_end..instrs.len();
+                let repeated = repeats(&sub_instrs.0, &instrs[open_space.clone()]);
+                for sub_ix in repeated {
+                    cur_repeats.push(Routine {
+                        start: open_space.start + sub_ix,
+                        end: open_space.start + sub_ix + sub_len,
+                        id: routine.id,
+                    });
+                }
+            }
+
+            // We've found all our repeats; let's see if they are "the best"
+            // "the best" is defined as # of instructions that will be "saved"
+            let score = sub_len * (cur_repeats.len() - 1);
+            if score > best.1 {
+                best = (cur_repeats, score);
+            }
+        }
+
+        // We have our "best" set of subroutines. Let's add them to the pool and
+        // carry on
+        routines.append(&mut best.0);
+        routines.sort();
+        next_id += 1;
     }
 
-    unimplemented!()
+    routines
 }
 
 fn main() -> anyhow::Result<()> {
@@ -433,9 +469,12 @@ fn main() -> anyhow::Result<()> {
     println!("----------------------------------------");
     let instrs = grid.instructions()?;
     println!("Instructions:");
-    for i in instrs {
+    for i in &instrs {
         println!("  {}", i);
     }
+
+    let reps = routines(&instrs);
+    println!("Routines: {:?}", reps);
 
     Ok(())
 }
@@ -485,9 +524,10 @@ mod tests {
 
         Ok(())
     }
+
     #[test]
     fn test_instrs() -> anyhow::Result<()> {
-        let grid = Grid::from_str(EXAMPLE2MPLE2)?;
+        let grid = Grid::from_str(EXAMPLE2)?;
         let instrs = grid.instructions()?;
 
         let mut s = String::new();
@@ -502,5 +542,25 @@ mod tests {
 
         Ok(())
     }
-}
+
+    #[test]
+    fn test_repeats() -> anyhow::Result<()> {
+        let grid = Grid::from_str(EXAMPLE2)?;
+        let instrs = grid.instructions()?;
+
+        let reps = routines(&instrs);
+        println!("Routines: {:?}", reps);
+        let mut last_end = 0usize;
+        for r in &reps {
+            assert_eq!(r.start, last_end);
+            last_end = r.end;
+        }
+        assert_eq!(last_end, instrs.len());
+        let ids: Vec<usize> = reps.iter().map(|r| r.id).collect();
+        // A,B,C,B,A,C
+        let expected_ids: Vec<usize> = vec![0, 1, 2, 1, 0, 2];
+        assert_eq!(ids, expected_ids);
+
+        Ok(())
+    }
 }
