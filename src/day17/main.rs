@@ -10,9 +10,7 @@ use std::str::FromStr;
 use clap::{App, Arg};
 use log::debug;
 
-use aoc::intcomp::{IntComp, OutputVec, Stopped};
-
-type Value = i64;
+use aoc::intcomp::{IntComp, OutputVec, Stopped, Value};
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Loc(Value, Value);
@@ -604,10 +602,21 @@ fn main() -> anyhow::Result<()> {
         println!("{}", s);
     }
 
-    // println!("Routines:");
-    // for r in &reps {
-    //     println!("  {}", r);
-    // }
+    println!("----------------------------------------");
+    cp = str::parse(&line)?;
+    assert_eq!(cp.values[0], 1);
+    cp.values[0] = 2;
+
+    let mut input_str = reps.instructions();
+    // Disable continuous feed
+    input_str.push_str("n\n");
+    let input_instructions: Vec<Value> =
+        input_str.into_bytes().iter().map(|&n| n as Value).collect();
+    let mut outputs = OutputVec::new();
+    cp.process(input_instructions, &mut outputs)?
+        .expect(Stopped::Halted)?;
+
+    println!("Final Output: {}", outputs.0.back().unwrap());
 
     Ok(())
 }
