@@ -1,9 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::ops;
 
 type Value = i64;
+
+// Note to self: Days 3, 10, 13, 15, and 18 are on grids.
+// 15 and 18 are maps.
+// 12 is 3D, not really a grid.
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Position(pub Value, pub Value);
@@ -20,6 +25,12 @@ pub enum Compass {
     South,
     East,
     West,
+}
+
+impl Compass {
+    pub const fn all() -> [Compass; 4] {
+        [Compass::North, Compass::East, Compass::South, Compass::West]
+    }
 }
 
 impl fmt::Display for Compass {
@@ -88,7 +99,8 @@ impl fmt::Display for Turn {
 }
 
 pub enum Token<T> {
-    Skip,
+    Ignore,
+    Empty,
     NewRow,
     Item(T),
 }
@@ -115,7 +127,7 @@ impl<T> Default for Map<T> {
     }
 }
 
-impl<T: Eq> Map<T> {
+impl<T> Map<T> {
     pub fn get(&self, pos: Position) -> Option<&T> {
         self.grid.get(&pos)
     }
@@ -131,12 +143,7 @@ impl<T: Eq> Map<T> {
     }
 }
 
-impl<T> std::iter::FromIterator<Token<T>> for Map<T>
-where
-    T: Hash + Eq + fmt::Debug,
-    // <T as FromSequence<C>>::Error: std::error::Error + Sync + Send + 'static,
-{
-    // type Error = anyhow::Error;
+impl<T> std::iter::FromIterator<Token<T>> for Map<T> {
     fn from_iter<I: IntoIterator<Item = Token<T>>>(iter: I) -> Self {
         let mut maxx = 0;
         let mut maxy = 0;
@@ -146,7 +153,10 @@ where
         for token in iter {
             let pos = Position(x, y);
             match token {
-                Token::Skip => continue,
+                Token::Ignore => continue,
+                Token::Empty => {
+                    x += 1;
+                }
                 Token::NewRow => {
                     if x == 0 {
                         continue;
@@ -158,14 +168,13 @@ where
                 }
                 Token::Item(item) => {
                     grid.insert(pos, item);
+                    if x > maxx {
+                        maxx = x;
+                    }
+
+                    x += 1;
                 }
             }
-
-            if x > maxx {
-                maxx = x;
-            }
-
-            x += 1;
         }
 
         Map {
@@ -175,52 +184,56 @@ where
     }
 }
 
-// impl<T> FromStr for Map<T>
-// where
-//     T: Hash + Eq + fmt::Debug,
-//     T: TryFrom<(char, Position)>,
-//     <T as TryFrom<(char, Position)>>::Error: std::error::Error + Sync + Send + 'static,
-// {
-//     type Err = anyhow::Error;
+pub struct Distances<'a, T> {
+    map: &'a Map<T>,
+    // Queue of (distance, place) of places not yet visited or gone beyond
+    queue: BinaryHeap<(Reverse<Value>, Position)>,
+    seen: HashSet<Position>,
+}
 
-//     fn from_str(s: &str) -> anyhow::Result<Map<T>> {
-//         let mut maxx = 0;
-//         let mut maxy = 0;
-//         let (mut x, mut y) = (0i64, 0i64);
-//         let mut grid = HashMap::new();
+pub enum Found<'a, T> {
+    Item(Value, Position, &'a T),
+    Unknown(Value, Position),
+    None,
+}
 
-//         for c in s.chars() {
-//             let pos = Position(x, y);
-//             match c {
-//                 ' ' => continue,
-//                 '\n' => {
-//                     if x == 0 {
-//                         continue;
-//                     }
-//                     maxy = y;
-//                     y += 1;
-//                     x = 0;
-//                     continue;
-//                 }
-//                 c => {
-//                     let square: T = TryFrom::try_from((c, pos))?;
-//                     grid.insert(pos, square);
-//                 }
-//             }
+impl<'a, T> Distances<'a, T> {
+    pub fn new(start: Position, map: &'a Map<T>) -> Self {
+        let queue = BinaryHeap::from(vec![(Reverse(0i64), start)]);
+        Distances {
+            map,
+            queue,
+            seen: Default::default(),
+        }
+    }
 
-//             if x > maxx {
-//                 maxx = x;
-//             }
+    pub fn next<F>(&mut self, passable: F) -> Found<'a, T>
+    where
+        F: Fn(&'a T) -> bool,
+    {
+        let (Reverse(dist), pos) = match self.queue.pop() {
+            None => return Found::None,
+            Some(sq) => sq,
+        };
+        let item = match self.map.get(pos) {
+            None => return Found::Unknown(dist, pos),
+            Some(it) => it,
+        };
 
-//             x += 1;
-//         }
+        if passable(item) {
+            for &dir in &Compass::all() {
+                let new_pos = pos + dir;
+                if self.seen.contains(&new_pos) {
+                    continue;
+                }
+                self.queue.push((Reverse(dist + 1), new_pos));
+            }
+        }
 
-//         Ok(Map {
-//             shape: (maxx, maxy),
-//             grid,
-//         })
-//     }
-// }
+        self.seen.insert(pos);
+        Found::Item(dist, pos, item)
+    }
+}
 
 pub enum Structure {
     Passable,
@@ -255,5 +268,49 @@ impl<T: Eq + Hash + SquareAttributes> From<Map<T>> for (Grid, Vec<(T, Position)>
         }
 
         (grid, items)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_env_log::test;
+
+    use super::*;
+
+    // Adapted from day 15
+    const EXAMPLE1: &'static str = r#"
+    -##---
+    #..##-
+    #.#..#
+    #.O.#-
+    -###--
+    "#;
+
+    enum ShipSquare {
+        Empty,
+        Wall,
+        OxygenSystem,
+    }
+
+    #[test]
+    fn test_map() -> anyhow::Result<()> {
+        let token_stream = EXAMPLE1.chars().map(|c| {
+            Ok(match c {
+                ' ' => Token::Ignore,
+                '-' => Token::Empty,
+                '\n' => Token::NewRow,
+                '#' => Token::Item(ShipSquare::Wall),
+                '.' => Token::Item(ShipSquare::Empty),
+                'O' => Token::Item(ShipSquare::OxygenSystem),
+                _ => return Err(anyhow::format_err!("Unexpected char {:?}", c)),
+            })
+        });
+
+        let maybe_map: Result<Map<ShipSquare>, anyhow::Error> = token_stream.collect();
+        let map = maybe_map?;
+
+        assert_eq!(map.shape, (5, 4));
+
+        Ok(())
     }
 }
