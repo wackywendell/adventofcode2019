@@ -5,85 +5,30 @@ use std::fmt::Write;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::ops::Add;
 
 use clap::{App, Arg};
 use log::debug;
 
+use aoc::grid::{Compass, Map, Position, Turn};
 use aoc::intcomp::IntComp;
 
 type Value = i64;
 
-type Position = (Value, Value);
-
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Direction {
-    North,
-    South,
-    West,
-    East,
-}
-
-impl From<Direction> for Value {
-    fn from(dir: Direction) -> Value {
-        match dir {
-            Direction::North => 1,
-            Direction::South => 2,
-            Direction::West => 3,
-            Direction::East => 4,
-        }
-    }
-}
-
-impl Direction {
-    fn left(self) -> Self {
-        match self {
-            Direction::North => Direction::West,
-            Direction::South => Direction::East,
-            Direction::West => Direction::South,
-            Direction::East => Direction::North,
-        }
-    }
-    fn right(self) -> Self {
-        match self {
-            Direction::North => Direction::East,
-            Direction::South => Direction::West,
-            Direction::West => Direction::North,
-            Direction::East => Direction::South,
-        }
-    }
-}
-
-impl Add<Direction> for Position {
-    type Output = Position;
-
-    #[allow(clippy::suspicious_arithmetic_impl)]
-    fn add(self, dir: Direction) -> Self {
-        let (y, x) = self;
-        match dir {
-            Direction::North => (y - 1, x),
-            Direction::South => (y + 1, x),
-            Direction::West => (y, x - 1),
-            Direction::East => (y, x + 1),
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Location {
+pub enum Square {
     Wall,
     Empty,
     OxygenSystem,
 }
 
-impl TryFrom<Value> for Location {
+impl TryFrom<Value> for Square {
     type Error = anyhow::Error;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(Location::Wall),
-            1 => Ok(Location::Empty),
-            2 => Ok(Location::OxygenSystem),
+            0 => Ok(Square::Wall),
+            1 => Ok(Square::Empty),
+            2 => Ok(Square::OxygenSystem),
             _ => Err(anyhow::format_err!(
                 "Can't convert value {} to Location",
                 value
@@ -92,22 +37,22 @@ impl TryFrom<Value> for Location {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Area {
-    locations: HashMap<Position, Location>,
+    map: Map<Square>,
 }
 
 impl Area {
     fn with_bot<'a, 'b>(&'a self, bot: &'b Bot) -> AreaWithBot<'a> {
         AreaWithBot {
-            locations: &self.locations,
+            map: &self.map,
             bot: bot.position,
         }
     }
 
     pub fn oxygen(&self) -> Option<Position> {
-        for (&p, &l) in &self.locations {
-            if l == Location::OxygenSystem {
+        for (&p, &l) in &self.map.grid {
+            if l == Square::OxygenSystem {
                 return Some(p);
             }
         }
@@ -119,16 +64,11 @@ impl Area {
         queue.push_back((0, start));
         let mut seen = HashMap::new();
 
-        let directions = [
-            Direction::North,
-            Direction::East,
-            Direction::South,
-            Direction::West,
-        ];
+        let directions = [Compass::North, Compass::East, Compass::South, Compass::West];
 
         while let Some((dist, pos)) = queue.pop_front() {
             log::info!("Trying {}: {:?}", dist, pos);
-            if let Some(Location::Wall) = self.locations.get(&pos) {
+            if let Some(Square::Wall) = self.map.grid.get(&pos) {
                 log::info!("  Hit a Wall");
                 continue;
             }
@@ -167,16 +107,16 @@ impl Area {
 }
 
 struct AreaWithBot<'a> {
-    locations: &'a HashMap<Position, Location>,
+    map: &'a Map<Square>,
     bot: Position,
 }
 
 impl<'a> fmt::Display for AreaWithBot<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (mut minx, mut maxx) = (0, 0);
-        let (mut miny, mut maxy) = (0, 0);
+        let (mut minx, mut maxx) = (0i64, 0i64);
+        let (mut miny, mut maxy) = (0i64, 0i64);
 
-        for &(x, y) in self.locations.keys() {
+        for &Position(x, y) in self.map.grid.keys() {
             if x < minx {
                 minx = x;
             }
@@ -193,16 +133,16 @@ impl<'a> fmt::Display for AreaWithBot<'a> {
 
         for x in minx - 1..=maxx + 1 {
             for y in miny - 1..=maxy + 1 {
-                if (x, y) == self.bot {
+                if Position(x, y) == self.bot {
                     f.write_char('X')?;
                     continue;
                 }
 
-                let c = match self.locations.get(&(x, y)) {
+                let c = match self.map.grid.get(&Position(x, y)) {
                     None => '.',
-                    Some(Location::Empty) => ' ',
-                    Some(Location::Wall) => '#',
-                    Some(Location::OxygenSystem) => 'O',
+                    Some(Square::Empty) => ' ',
+                    Some(Square::Wall) => '#',
+                    Some(Square::OxygenSystem) => 'O',
                 };
                 f.write_char(c)?;
             }
@@ -223,14 +163,23 @@ impl From<IntComp> for Bot {
     fn from(program: IntComp) -> Self {
         Bot {
             program,
-            position: (0, 0),
+            position: Position(0, 0),
         }
     }
 }
 
 impl Bot {
-    pub fn step(&mut self, direction: Direction) -> anyhow::Result<(Location, Position)> {
-        let input: Value = direction.into();
+    fn compass_value(dir: Compass) -> Value {
+        match dir {
+            Compass::North => 1,
+            Compass::South => 2,
+            Compass::West => 3,
+            Compass::East => 4,
+        }
+    }
+
+    pub fn step(&mut self, direction: Compass) -> anyhow::Result<(Square, Position)> {
+        let input: Value = Self::compass_value(direction);
         log::info!(
             "step {:?}: {}; {:?} -> {:?}",
             direction,
@@ -253,12 +202,12 @@ impl Bot {
             Some(v) => v,
         };
 
-        let loc = Location::try_from(out)?;
+        let loc = Square::try_from(out)?;
 
         self.position = match loc {
-            Location::Wall => self.position,
-            Location::Empty => self.position + direction,
-            Location::OxygenSystem => self.position + direction,
+            Square::Wall => self.position,
+            Square::Empty => self.position + direction,
+            Square::OxygenSystem => self.position + direction,
         };
 
         Ok((loc, self.position))
@@ -268,46 +217,44 @@ impl Bot {
         // TODO: doesn't explore inner areas
 
         let mut known = Area::default();
-        known.locations.insert(self.position, Location::Empty);
+        known.map.insert(self.position, Square::Empty);
 
         // Start by finding a wall
         loop {
-            let (loc, _) = self.step(Direction::North)?;
-            if loc == Location::Wall {
-                known
-                    .locations
-                    .insert(self.position + Direction::North, loc);
+            let (loc, _) = self.step(Compass::North)?;
+            if loc == Square::Wall {
+                known.map.insert(self.position + Compass::North, loc);
                 break;
             }
 
-            known.locations.insert(self.position, loc);
+            known.map.insert(self.position, loc);
         }
         log::info!("Hit wall at {:?}", self.position);
 
         let start = self.position;
 
         // Turn East, and follow the wall
-        let mut dir = Direction::East;
+        let mut dir = Compass::East;
         loop {
             let (loc, pos) = self.step(dir)?;
             log::info!("Stepped: {:?}, {:?}", loc, pos);
 
-            if loc == Location::Wall {
-                known.locations.insert(self.position + dir, loc);
+            if loc == Square::Wall {
+                known.map.insert(self.position + dir, loc);
                 // Turn right when you hit a wall, left when you don't
-                dir = dir.right();
-                if self.position == start && dir == Direction::East {
+                dir = dir + Turn::Right;
+                if self.position == start && dir == Compass::East {
                     break;
                 }
                 continue;
             }
 
-            known.locations.insert(self.position, loc);
-            dir = dir.left();
+            known.map.insert(self.position, loc);
+            dir = dir + Turn::Left;
 
             log::info!("\n{}", known.with_bot(self));
 
-            if self.position == start && dir == Direction::East {
+            if self.position == start && dir == Compass::East {
                 break;
             }
         }
@@ -347,7 +294,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("{}", area.with_bot(&bot));
 
-    println!("Shortest route to Oxygen: {}", area.shortest_route((0, 0)));
+    println!(
+        "Shortest route to Oxygen: {}",
+        area.shortest_route(Position(0, 0))
+    );
 
     let distances = area.distances(area.oxygen().unwrap());
     let &max = distances.values().max().unwrap();
