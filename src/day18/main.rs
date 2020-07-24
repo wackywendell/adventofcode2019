@@ -1,5 +1,5 @@
 use std::cmp::{Ord, Ordering, PartialOrd, Reverse};
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
 use std::fs::File;
@@ -11,7 +11,7 @@ use thiserror::Error;
 use clap::{App, Arg};
 use log::debug;
 
-use aoc::grid::{Compass, Location, Map, Position, Token, Turn};
+use aoc::grid::{Map, Token};
 
 type Value = i64;
 
@@ -69,14 +69,16 @@ impl From<Square> for char {
 
 pub struct Distances<'a> {
     area: &'a Area,
-    distances: HashMap<Square, HashMap<Square, Value>>,
+    pub distances: HashMap<Square, HashMap<Square, Value>>,
+    pub shortests: HashMap<(Square, BTreeSet<char>), ShortestPath>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct Progress {
     distance: Value,
     square: Square,
-    collected: HashSet<char>,
+    collected: BTreeSet<char>,
+    since_collected: HashSet<Square>,
     seen: Vec<Square>,
 }
 
@@ -87,6 +89,7 @@ impl Progress {
             Reverse(self.distance),
             self.collected.len(),
             self.square,
+            Reverse(self.since_collected.len()),
             &self.seen,
         )
     }
@@ -104,9 +107,9 @@ impl PartialOrd for Progress {
     }
 }
 
-struct ShortestPath {
-    path: Vec<Square>,
-    dist: Value,
+pub struct ShortestPath {
+    pub path: Vec<Square>,
+    pub dist: Value,
 }
 
 impl fmt::Display for ShortestPath {
@@ -119,32 +122,73 @@ impl fmt::Display for ShortestPath {
     }
 }
 
+impl From<Progress> for ShortestPath {
+    fn from(p: Progress) -> Self {
+        ShortestPath {
+            path: p.seen,
+            dist: p.distance,
+        }
+    }
+}
+
 impl<'a> Distances<'a> {
-    fn shortest(&self) -> Option<ShortestPath> {
+    pub fn shortest(&mut self) -> Option<ShortestPath> {
         let initial = Progress {
             distance: 0,
             square: Square::Entrance,
-            collected: HashSet::new(),
+            collected: BTreeSet::new(),
+            since_collected: HashSet::new(),
             seen: Vec::new(),
         };
 
         let mut queue = BinaryHeap::from(vec![initial]);
 
-        log::info!("Starting shortest");
+        log::info!("--- Starting shortest ---");
 
         let mut i = 0;
 
         while let Some(p) = queue.pop() {
+            let graph_key = (p.square, p.collected.clone());
+            match self.shortests.entry(graph_key) {
+                Entry::Occupied(o) if o.get().dist <= p.distance => {
+                    // log::info!(
+                    //     "Skipping {:?}, distance {}, collected {:?}",
+                    //     p.square,
+                    //     p.distance,
+                    //     p.collected,
+                    // );
+                    continue;
+                }
+                Entry::Occupied(mut o) => {
+                    o.insert(p.clone().into());
+                }
+                Entry::Vacant(e) => {
+                    e.insert(p.clone().into());
+                }
+            }
+
             i += 1;
 
-            if i > 1000 {
+            if i >= 400000 {
+                log::warn!("Stopping after {} steps; queue length {}", i, queue.len());
+                for p in queue.iter().take(20) {
+                    let mut collected: Vec<char> = p.collected.iter().copied().collect();
+                    collected.sort();
+                    let collected: String = collected.iter().copied().collect();
+                    let path: String = p.seen.iter().copied().map(char::from).collect();
+                    log::warn!(
+                        "    {} {}, collected {}, path {}",
+                        char::from(p.square),
+                        p.distance,
+                        collected,
+                        path
+                    )
+                }
                 break;
             }
+
             if p.collected.len() == self.area.keys.len() {
-                return Some(ShortestPath {
-                    path: p.seen,
-                    dist: p.distance,
-                });
+                return Some(p.into());
             }
 
             for (&next, &dist) in self.distances.get(&p.square).unwrap() {
@@ -154,35 +198,53 @@ impl<'a> Distances<'a> {
                         continue;
                     }
                 };
-                let mut collected = p.collected.clone();
-                if let Square::Key(c) = next {
-                    collected.insert(c);
+                if p.since_collected.contains(&next) {
+                    // We've been to this square since the last time we
+                    // collected a key. That is pointless.
+                    continue;
                 }
+                let mut collected = p.collected.clone();
+                let mut just_collected = false;
+                if let Square::Key(c) = next {
+                    if !collected.contains(&c) {
+                        collected.insert(c);
+                        just_collected = true;
+                    }
+                }
+
+                let since_collected = if just_collected {
+                    HashSet::new()
+                } else {
+                    let mut since = p.since_collected.clone();
+                    since.insert(next);
+                    since
+                };
 
                 let mut seen = p.seen.clone();
                 seen.push(next);
 
-                if i % 100 == 0 {
-                    log::info!(
-                        "Went from {:?} to {:?}, distance {} -> {}, collected {:?}",
-                        p.square,
-                        next,
-                        p.distance,
-                        p.distance + dist,
-                        collected
-                    );
-                }
+                // if i % 1 == 0 {
+                //     log::debug!(
+                //         "Went from {:?} to {:?}, distance {} -> {}, collected {:?}",
+                //         p.square,
+                //         next,
+                //         p.distance,
+                //         p.distance + dist,
+                //         collected
+                //     );
+                // }
 
                 queue.push(Progress {
                     distance: p.distance + dist,
                     square: next,
                     collected,
+                    since_collected,
                     seen,
                 });
 
-                if i % 100 == 0 {
-                    log::debug!("  Queue: {:?}", queue);
-                }
+                // if i % 1 == 0 {
+                //     log::debug!("  Queue: {:?}", queue);
+                // }
             }
         }
 
@@ -261,6 +323,7 @@ impl Area {
         Distances {
             distances,
             area: &self,
+            shortests: HashMap::new(),
         }
     }
 }
@@ -364,6 +427,7 @@ mod tests {
                 .iter()
                 .map(|&c| Square::try_from(c).unwrap())
                 .collect(),
+            since_collected: HashSet::new(), // I'm ignoring this in this test
         };
 
         // More progress
@@ -377,6 +441,7 @@ mod tests {
                 .iter()
                 .map(|&c| Square::try_from(c).unwrap())
                 .collect(),
+            since_collected: HashSet::new(), // I'm ignoring this in this test
         };
 
         // Less progress
@@ -390,17 +455,19 @@ mod tests {
                 .iter()
                 .map(|&c| Square::try_from(c).unwrap())
                 .collect(),
+            since_collected: HashSet::new(), // I'm ignoring this in this test
         };
 
-        assert!(p2 > p1);
-        assert!(p3 < p1);
-        assert!(p3 < p2);
+        // Less distance covered needs to be expanded first
+        assert!(p1 > p2);
+        assert!(p1 > p3);
+        assert!(p3 > p2);
 
         Ok(())
     }
 
     #[test]
-    fn test_shortest() -> anyhow::Result<()> {
+    fn test_shortest_easy() -> anyhow::Result<()> {
         let area = Area::from_str(EXAMPLE1)?;
         let shortest = area.distances().shortest().unwrap();
         assert_eq!(shortest.dist, 8);
@@ -433,6 +500,15 @@ mod tests {
         #################
     "#;
 
+    const EXAMPLE5: &str = r#"
+        ########################
+        #@..............ac.GI.b#
+        ###d#e#f################
+        ###A#B#C################
+        ###g#h#i################
+        ########################
+    "#;
+
     #[test]
     fn test_shortest_more() -> anyhow::Result<()> {
         let area = Area::from_str(EXAMPLE3)?;
@@ -445,9 +521,12 @@ mod tests {
         assert_eq!(shortest.dist, 132);
 
         let area = Area::from_str(EXAMPLE4)?;
-        let distances = area.distances();
         let shortest = area.distances().shortest().unwrap();
         assert_eq!(shortest.dist, 136);
+
+        let area = Area::from_str(EXAMPLE5)?;
+        let shortest = area.distances().shortest().unwrap();
+        assert_eq!(shortest.dist, 81);
 
         Ok(())
     }
