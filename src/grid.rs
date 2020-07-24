@@ -113,6 +113,7 @@ pub trait FromSequence<C>: Sized {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Map<T> {
+    // width, height
     pub shape: (Value, Value),
     pub grid: HashMap<Position, T>,
 }
@@ -124,22 +125,6 @@ impl<T> Default for Map<T> {
             shape: Default::default(),
             grid: Default::default(),
         }
-    }
-}
-
-impl<T> Map<T> {
-    pub fn get(&self, pos: Position) -> Option<&T> {
-        self.grid.get(&pos)
-    }
-    pub fn insert(&mut self, pos: Position, item: T) -> Option<T> {
-        let Position(x, y) = pos;
-        if x > self.shape.0 {
-            self.shape = (x, self.shape.1);
-        }
-        if y > self.shape.1 {
-            self.shape = (self.shape.0, y);
-        }
-        self.grid.insert(pos, item)
     }
 }
 
@@ -178,60 +163,106 @@ impl<T> std::iter::FromIterator<Token<T>> for Map<T> {
         }
 
         Map {
-            shape: (maxx, maxy),
+            shape: (maxx + 1, maxy + 1),
             grid,
         }
     }
 }
 
-pub struct Distances<'a, T> {
+impl<T> Map<T> {
+    pub fn get(&self, pos: Position) -> Option<&T> {
+        self.grid.get(&pos)
+    }
+    pub fn insert(&mut self, pos: Position, item: T) -> Option<T> {
+        let Position(x, y) = pos;
+        if x > self.shape.0 {
+            self.shape = (x, self.shape.1);
+        }
+        if y > self.shape.1 {
+            self.shape = (self.shape.0, y);
+        }
+        self.grid.insert(pos, item)
+    }
+
+    pub fn from_str<FN, E>(s: &str, tokenizer: FN) -> Result<Self, E>
+    where
+        FN: FnMut(char) -> Result<Token<T>, E>,
+    {
+        s.chars().map(tokenizer).collect()
+    }
+
+    pub fn distances<'a, F: FnMut(&'a T) -> bool>(
+        &'a self,
+        start: Position,
+        passable: F,
+    ) -> Distances<'a, T, F> {
+        Distances::new(start, self, passable)
+    }
+}
+
+pub struct Distances<'a, T, F> {
     map: &'a Map<T>,
+    passable: F,
     // Queue of (distance, place) of places not yet visited or gone beyond
     queue: BinaryHeap<(Reverse<Value>, Position)>,
     seen: HashSet<Position>,
 }
 
-pub enum Found<'a, T> {
-    Item(Value, Position, &'a T),
-    Unknown(Value, Position),
-    None,
-}
-
-impl<'a, T> Distances<'a, T> {
-    pub fn new(start: Position, map: &'a Map<T>) -> Self {
+impl<'a, T, F: FnMut(&'a T) -> bool> Distances<'a, T, F> {
+    pub fn new(start: Position, map: &'a Map<T>, passable: F) -> Self {
         let queue = BinaryHeap::from(vec![(Reverse(0i64), start)]);
         Distances {
             map,
             queue,
+            passable,
             seen: Default::default(),
         }
     }
+}
 
-    pub fn next<F>(&mut self, passable: F) -> Found<'a, T>
-    where
-        F: Fn(&'a T) -> bool,
-    {
-        let (Reverse(dist), pos) = match self.queue.pop() {
-            None => return Found::None,
+pub struct Location<'a, T> {
+    pub distance: Value,
+    pub position: Position,
+    // Whether anything is found at this location, or whether it is "off the map"
+    pub item: Option<&'a T>,
+}
+
+impl<'a, T: 'a, F: FnMut(&'a T) -> bool> Iterator for Distances<'a, T, F> {
+    type Item = Location<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (Reverse(distance), position) = match self.queue.pop() {
+            None => return None,
             Some(sq) => sq,
         };
-        let item = match self.map.get(pos) {
-            None => return Found::Unknown(dist, pos),
+        let item = match self.map.get(position) {
+            None => {
+                return Some(Location {
+                    distance,
+                    position,
+                    item: None,
+                });
+            }
             Some(it) => it,
         };
 
-        if passable(item) {
+        if (self.passable)(item) {
             for &dir in &Compass::all() {
-                let new_pos = pos + dir;
-                if self.seen.contains(&new_pos) {
+                let new_position = position + dir;
+                if self.seen.contains(&new_position) {
                     continue;
                 }
-                self.queue.push((Reverse(dist + 1), new_pos));
+                self.queue.push((Reverse(distance + 1), new_position));
             }
         }
 
-        self.seen.insert(pos);
-        Found::Item(dist, pos, item)
+        self.seen.insert(position);
+
+        Some(Location {
+            distance,
+            position,
+            item: Some(item),
+        })
     }
 }
 
@@ -309,7 +340,7 @@ mod tests {
         let maybe_map: Result<Map<ShipSquare>, anyhow::Error> = token_stream.collect();
         let map = maybe_map?;
 
-        assert_eq!(map.shape, (5, 4));
+        assert_eq!(map.shape, (6, 5));
 
         Ok(())
     }
