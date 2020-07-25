@@ -2,9 +2,6 @@ use std::cmp::{Ord, Ordering, PartialOrd, Reverse};
 use std::collections::{hash_map::Entry, BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::BufReader;
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -78,26 +75,82 @@ struct Progress {
     distance: Value,
     square: Square,
     collected: BTreeSet<char>,
-    since_collected: HashSet<Square>,
-    seen: Vec<Square>,
+    path: Vec<Square>,
 }
 
 impl Progress {
-    fn key<'a>(&'a self) -> impl Ord + 'a {
+    // fn keys_iter<'a>(&'a self) -> impl Iterator<Item = char> + 'a {
+    //     self.path.iter().filter_map(|&sq| {
+    //         if let Square::Key(c) = sq {
+    //             Some(c)
+    //         } else {
+    //             None
+    //         }
+    //     })
+    // }
+
+    fn start<S: Into<Square>>(location: S) -> Self {
+        let sq = location.into();
+        let mut start = Progress {
+            distance: 0,
+            square: sq,
+            collected: Default::default(),
+            path: vec![sq],
+        };
+        if let Square::Key(c) = sq {
+            start.collected.insert(c);
+        };
+        start
+    }
+
+    fn step<S: Into<Square>>(&self, location: S, dist: Value) -> Self {
+        let sq = location.into();
+        let mut new = Progress {
+            distance: self.distance + dist,
+            square: sq,
+            collected: self.collected.clone(),
+            path: self.path.clone(),
+        };
+
+        new.path.push(sq);
+        if let Square::Key(c) = sq {
+            new.collected.insert(c);
+        }
+
+        new
+    }
+
+    // fn keys(&self) -> Vec<char> {
+    //     let mut collected: Vec<char> = self
+    //         .path
+    //         .iter()
+    //         .filter_map(|&sq| {
+    //             if let Square::Key(c) = sq {
+    //                 Some(c)
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .collect();
+    //     collected.sort_unstable();
+    //     collected.dedup();
+    //     collected
+    // }
+
+    fn ordering_key<'a>(&'a self) -> impl Ord + 'a {
         // The less distance gone, and the more collected, the better
         (
             Reverse(self.distance),
             self.collected.len(),
             self.square,
-            Reverse(self.since_collected.len()),
-            &self.seen,
+            &self.path,
         )
     }
 }
 
 impl Ord for Progress {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.key().cmp(&other.key())
+        self.ordering_key().cmp(&other.ordering_key())
     }
 }
 
@@ -125,7 +178,7 @@ impl fmt::Display for ShortestPath {
 impl From<Progress> for ShortestPath {
     fn from(p: Progress) -> Self {
         ShortestPath {
-            path: p.seen,
+            path: p.path,
             dist: p.distance,
         }
     }
@@ -133,13 +186,7 @@ impl From<Progress> for ShortestPath {
 
 impl<'a> Distances<'a> {
     pub fn shortest(&mut self) -> Option<ShortestPath> {
-        let initial = Progress {
-            distance: 0,
-            square: Square::Entrance,
-            collected: BTreeSet::new(),
-            since_collected: HashSet::new(),
-            seen: Vec::new(),
-        };
+        let initial = Progress::start(Square::Entrance);
 
         let mut queue = BinaryHeap::from(vec![initial]);
 
@@ -151,12 +198,12 @@ impl<'a> Distances<'a> {
             let graph_key = (p.square, p.collected.clone());
             match self.shortests.entry(graph_key) {
                 Entry::Occupied(o) if o.get().dist <= p.distance => {
-                    // log::info!(
-                    //     "Skipping {:?}, distance {}, collected {:?}",
-                    //     p.square,
-                    //     p.distance,
-                    //     p.collected,
-                    // );
+                    log::info!(
+                        "Skipping {:?}, distance {}, collected {:?}",
+                        p.square,
+                        p.distance,
+                        p.collected,
+                    );
                     continue;
                 }
                 Entry::Occupied(mut o) => {
@@ -171,15 +218,13 @@ impl<'a> Distances<'a> {
 
             if i >= 400000 {
                 log::warn!("Stopping after {} steps; queue length {}", i, queue.len());
-                for p in queue.iter().take(20) {
-                    let mut collected: Vec<char> = p.collected.iter().copied().collect();
-                    collected.sort();
-                    let collected: String = collected.iter().copied().collect();
-                    let path: String = p.seen.iter().copied().map(char::from).collect();
+                for queued in queue.iter().take(20) {
+                    let collected: String = queued.collected.iter().copied().collect();
+                    let path: String = queued.path.iter().copied().map(char::from).collect();
                     log::warn!(
                         "    {} {}, collected {}, path {}",
-                        char::from(p.square),
-                        p.distance,
+                        char::from(queued.square),
+                        queued.distance,
                         collected,
                         path
                     )
@@ -198,49 +243,8 @@ impl<'a> Distances<'a> {
                         continue;
                     }
                 };
-                if p.since_collected.contains(&next) {
-                    // We've been to this square since the last time we
-                    // collected a key. That is pointless.
-                    continue;
-                }
-                let mut collected = p.collected.clone();
-                let mut just_collected = false;
-                if let Square::Key(c) = next {
-                    if !collected.contains(&c) {
-                        collected.insert(c);
-                        just_collected = true;
-                    }
-                }
 
-                let since_collected = if just_collected {
-                    HashSet::new()
-                } else {
-                    let mut since = p.since_collected.clone();
-                    since.insert(next);
-                    since
-                };
-
-                let mut seen = p.seen.clone();
-                seen.push(next);
-
-                // if i % 1 == 0 {
-                //     log::debug!(
-                //         "Went from {:?} to {:?}, distance {} -> {}, collected {:?}",
-                //         p.square,
-                //         next,
-                //         p.distance,
-                //         p.distance + dist,
-                //         collected
-                //     );
-                // }
-
-                queue.push(Progress {
-                    distance: p.distance + dist,
-                    square: next,
-                    collected,
-                    since_collected,
-                    seen,
-                });
+                queue.push(p.step(next, dist));
 
                 // if i % 1 == 0 {
                 //     log::debug!("  Queue: {:?}", queue);
@@ -344,12 +348,22 @@ fn main() -> anyhow::Result<()> {
     let input_path = matches.value_of("INPUT").unwrap_or("inputs/day18.txt");
 
     debug!("Using input {}", input_path);
-    let file = File::open(input_path)?;
-    let buf_reader = BufReader::new(file);
+    // let file = File::open(input_path)?;
+    // let buf_reader = BufReader::new(file);
 
-    for line in buf_reader.lines() {
-        println!("{}", line?)
-    }
+    // let line = buf_reader
+    //     .lines()
+    //     .next()
+    //     .ok_or_else(|| anyhow::format_err!("Expected a line in file"))??;
+
+    let area: Area = std::fs::read_to_string(input_path)?.parse()?;
+
+    // println!("Found Area: {}", area);
+
+    let shortest = area.distances().shortest().unwrap();
+
+    println!("-- Part One --");
+    println!("Took path {}", shortest);
 
     Ok(())
 }
@@ -417,46 +431,27 @@ mod tests {
 
     #[test]
     fn test_progress_order() -> anyhow::Result<()> {
+        let create = |start: char, steps: Vec<(Value, char)>| {
+            let start = Square::try_from(start).unwrap();
+            let mut p = Progress::start(start);
+            for (d, c) in steps {
+                let sq = Square::try_from(c).unwrap();
+                p = p.step(sq, d);
+            }
+            p
+        };
+
         // Some progress
         // a -2> b -3> B
-        let p1 = Progress {
-            collected: vec!['a', 'b'].iter().copied().collect(),
-            distance: 5,
-            square: Square::Door('B'),
-            seen: vec!['a', 'b', 'B']
-                .iter()
-                .map(|&c| Square::try_from(c).unwrap())
-                .collect(),
-            since_collected: HashSet::new(), // I'm ignoring this in this test
-        };
+        let p1 = create('a', vec![(2, 'b'), (2, 'B')]);
 
         // More progress
         // a -2> b -3> B -5> c
-        let p2 = Progress {
-            collected: vec!['a', 'b', 'c'].iter().copied().collect(),
-            distance: 10,
-            square: Square::Key('c'),
-
-            seen: vec!['a', 'b', 'B', 'c']
-                .iter()
-                .map(|&c| Square::try_from(c).unwrap())
-                .collect(),
-            since_collected: HashSet::new(), // I'm ignoring this in this test
-        };
+        let p2 = create('a', vec![(2, 'b'), (2, 'B'), (5, 'c')]);
 
         // Less progress
         // a -2> b -3> A -2> B
-        let p3 = Progress {
-            collected: vec!['a', 'b'].iter().copied().collect(),
-            distance: 7,
-            square: Square::Door('B'),
-
-            seen: vec!['a', 'b', 'A', 'B']
-                .iter()
-                .map(|&c| Square::try_from(c).unwrap())
-                .collect(),
-            since_collected: HashSet::new(), // I'm ignoring this in this test
-        };
+        let p3 = create('a', vec![(2, 'b'), (3, 'A'), (2, 'B')]);
 
         // Less distance covered needs to be expanded first
         assert!(p1 > p2);
