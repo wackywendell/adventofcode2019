@@ -16,6 +16,11 @@ text_io = "0.1.8"
 
 [dev-dependencies]
 test-env-log = "0.2.2"
+criterion = "0.3"
+
+[[bench]]
+name = "day18"
+harness = false
 
 [[bin]]
 name = "day1"
