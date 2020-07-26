@@ -59,6 +59,16 @@ impl ops::Add<Compass> for Position {
         }
     }
 }
+
+impl ops::Add<(Value, Value)> for Position {
+    type Output = Self;
+
+    fn add(self: Self, (dx, dy): (Value, Value)) -> Self {
+        let Position(x, y) = self;
+        Position(x + dx, y + dy)
+    }
+}
+
 impl ops::Add<Turn> for Compass {
     type Output = Self;
 
@@ -197,6 +207,23 @@ impl<T> Map<T> {
         passable: F,
     ) -> Distances<'a, T, F> {
         Distances::new(start, self, passable)
+    }
+}
+
+impl<T: Clone + Into<char>> fmt::Display for Map<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let (maxx, maxy) = self.shape;
+        for y in 0..=maxy {
+            for x in 0..=maxx {
+                let c = match self.get(Position(x, y)) {
+                    Some(sq) => sq.clone().into(),
+                    None => ' ',
+                };
+                write!(f, "{}", c)?;
+            }
+            write!(f, "\n")?;
+        }
+        Ok(())
     }
 }
 
