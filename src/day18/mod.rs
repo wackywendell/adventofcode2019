@@ -1,3 +1,3 @@
-pub mod area;
+mod area;
 
 pub use area::*;
