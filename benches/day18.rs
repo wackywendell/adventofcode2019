@@ -43,13 +43,25 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     for (i, &example) in examples.iter().enumerate() {
         let area = Area::from_str(example).unwrap();
-        let distances = area.distances();
-        // let name = format!("example-{}", i + 1);
 
-        c.bench_with_input(BenchmarkId::from_parameter(i + 1), &distances, |b, d| {
-            let mut d = d.clone();
-            b.iter(|| d.shortest().unwrap())
+        c.bench_with_input(BenchmarkId::new("distances", i + 1), &area, |b, area| {
+            b.iter(|| {
+                area.distances();
+            })
         });
+
+        let distances = area.distances();
+
+        c.bench_with_input(
+            BenchmarkId::new("shortest", i + 1),
+            &distances,
+            |b, distances| {
+                b.iter(|| {
+                    let mut d = distances.clone();
+                    d.shortest().unwrap();
+                })
+            },
+        );
     }
 }
 
