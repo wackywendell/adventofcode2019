@@ -1,5 +1,5 @@
 use std::cmp::{Ord, Ordering, PartialOrd, Reverse};
-use std::collections::{hash_map::Entry, BTreeSet, BinaryHeap, HashMap, HashSet};
+use std::collections::{hash_map::Entry, BinaryHeap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
@@ -65,28 +65,18 @@ impl From<Square> for char {
 pub struct Distances<'a> {
     area: &'a Area,
     pub distances: HashMap<Square, HashMap<Square, Value>>,
-    pub shortests: HashMap<(Square, BTreeSet<char>), ShortestPath>,
+    pub shortests: HashMap<(Square, Vec<char>), ShortestPath>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 struct Progress {
     distance: Value,
     square: Square,
-    collected: BTreeSet<char>,
+    collected: Vec<char>,
     path: Vec<Square>,
 }
 
 impl Progress {
-    // fn keys_iter<'a>(&'a self) -> impl Iterator<Item = char> + 'a {
-    //     self.path.iter().filter_map(|&sq| {
-    //         if let Square::Key(c) = sq {
-    //             Some(c)
-    //         } else {
-    //             None
-    //         }
-    //     })
-    // }
-
     fn start<S: Into<Square>>(location: S) -> Self {
         let sq = location.into();
         let mut start = Progress {
@@ -96,7 +86,7 @@ impl Progress {
             path: vec![sq],
         };
         if let Square::Key(c) = sq {
-            start.collected.insert(c);
+            start.collected.push(c);
         };
         start
     }
@@ -112,28 +102,13 @@ impl Progress {
 
         new.path.push(sq);
         if let Square::Key(c) = sq {
-            new.collected.insert(c);
+            new.collected.push(c);
+            new.collected.sort();
+            new.collected.dedup();
         }
 
         new
     }
-
-    // fn keys(&self) -> Vec<char> {
-    //     let mut collected: Vec<char> = self
-    //         .path
-    //         .iter()
-    //         .filter_map(|&sq| {
-    //             if let Square::Key(c) = sq {
-    //                 Some(c)
-    //             } else {
-    //                 None
-    //             }
-    //         })
-    //         .collect();
-    //     collected.sort_unstable();
-    //     collected.dedup();
-    //     collected
-    // }
 
     fn ordering_key<'a>(&'a self) -> impl Ord + 'a {
         // The less distance gone, and the more collected, the better
@@ -189,10 +164,6 @@ impl<'a> Distances<'a> {
 
         let mut queue = BinaryHeap::from(vec![initial]);
 
-        log::info!("--- Starting shortest ---");
-
-        let mut i = 0;
-
         while let Some(p) = queue.pop() {
             let graph_key = (p.square, p.collected.clone());
             match self.shortests.entry(graph_key) {
@@ -213,24 +184,6 @@ impl<'a> Distances<'a> {
                 }
             }
 
-            i += 1;
-
-            if i >= 400000 {
-                log::warn!("Stopping after {} steps; queue length {}", i, queue.len());
-                for queued in queue.iter().take(20) {
-                    let collected: String = queued.collected.iter().copied().collect();
-                    let path: String = queued.path.iter().copied().map(char::from).collect();
-                    log::warn!(
-                        "    {} {}, collected {}, path {}",
-                        char::from(queued.square),
-                        queued.distance,
-                        collected,
-                        path
-                    )
-                }
-                break;
-            }
-
             if p.collected.len() == self.area.keys.len() {
                 return Some(p.into());
             }
@@ -244,10 +197,6 @@ impl<'a> Distances<'a> {
                 };
 
                 queue.push(p.step(next, dist));
-
-                // if i % 1 == 0 {
-                //     log::debug!("  Queue: {:?}", queue);
-                // }
             }
         }
 

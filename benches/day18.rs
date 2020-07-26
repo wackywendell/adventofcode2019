@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use aoc::day18::Area;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 const EXAMPLE1: &str = r#"
     #########
@@ -57,8 +57,8 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             &distances,
             |b, distances| {
                 b.iter(|| {
-                    let mut d = distances.clone();
-                    d.shortest().unwrap();
+                    let d = distances.clone();
+                    black_box(d).shortest().unwrap();
                 })
             },
         );
