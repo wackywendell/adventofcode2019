@@ -202,6 +202,27 @@ impl PartialOrd for Progress4 {
     }
 }
 
+impl fmt::Display for Progress4 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Progress4[{} ", self.distance)?;
+
+        for &sq in &self.square {
+            write!(f, "{}", char::from(sq))?;
+        }
+
+        write!(f, " (")?;
+        for &c in &self.collected {
+            write!(f, "{}", c)?;
+        }
+        write!(f, "): ")?;
+
+        for &sq in &self.path {
+            write!(f, "{}", char::from(sq))?;
+        }
+        write!(f, "]")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ShortestPath {
     pub path: Vec<Square>,
@@ -246,12 +267,12 @@ impl<'a> Distances<'a> {
             let graph_key = (p.square, p.collected.clone());
             match self.shortests.entry(graph_key) {
                 Entry::Occupied(o) if o.get().dist <= p.distance => {
-                    log::info!(
-                        "Skipping {:?}, distance {}, collected {:?}",
-                        p.square,
-                        p.distance,
-                        p.collected,
-                    );
+                    // log::info!(
+                    //     "Skipping {:?}, distance {}, collected {:?}",
+                    //     p.square,
+                    //     p.distance,
+                    //     p.collected,
+                    // );
                     continue;
                 }
                 Entry::Occupied(mut o) => {
@@ -291,17 +312,13 @@ impl<'a> Distances<'a> {
 
         let mut queue = BinaryHeap::from(vec![initial]);
 
+        let mut progress_counter = 0;
         while let Some(p) = queue.pop() {
-            log::debug!("Checking {:#?}", p);
+            progress_counter += 1;
             let graph_key = (p.square, p.collected.clone());
             match self.shortests4.entry(graph_key) {
                 Entry::Occupied(o) if o.get().dist <= p.distance => {
-                    log::info!(
-                        "Skipping {:?}, distance {}, collected {:?}",
-                        p.square,
-                        p.distance,
-                        p.collected,
-                    );
+                    // log::info!("Skipping {}", p,);
                     continue;
                 }
                 Entry::Occupied(mut o) => {
@@ -312,17 +329,19 @@ impl<'a> Distances<'a> {
                 }
             }
 
+            log::debug!("{}: Queue size {}: {}", progress_counter, queue.len(), p);
+
             if p.collected.len() == self.area.keys.len() {
                 return Some(p.into());
             }
 
             for ix in 0..4 {
-                log::debug!("  Trying {}", ix);
+                // log::debug!("  Trying {}", ix);
                 for (&next, &dist) in self.distances.get(&p.square[ix]).unwrap() {
-                    log::debug!("    {} -> {}", char::from(p.square[ix]), char::from(next));
+                    // log::debug!("    {} -> {}", char::from(p.square[ix]), char::from(next));
                     if let Square::Door(d) = next {
                         if !p.collected.contains(&d.to_ascii_lowercase()) {
-                            log::debug!("      No key, skipping");
+                            // log::debug!("      No key, skipping");
                             // We've made it to a door, but have no keys. That is not progress.
                             continue;
                         }
@@ -337,6 +356,7 @@ impl<'a> Distances<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct Area {
     pub map: Map<Square>,
     pub keys: HashSet<char>,

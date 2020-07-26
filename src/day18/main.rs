@@ -36,5 +36,19 @@ fn main() -> anyhow::Result<()> {
     println!("-- Part One --");
     println!("Took path {}", shortest);
 
+    println!("-- Part Two --");
+    let mut split_area = area.clone();
+    split_area.split_entrance();
+    println!("Area:\n{}", split_area.map);
+    let mut distances = split_area.distances();
+    let pairs: usize = distances.distances.values().map(|m| m.len()).sum();
+    println!(
+        "Got {} distance pairs for {} points",
+        pairs,
+        distances.distances.len()
+    );
+    let shortest = distances.shortest_subs().unwrap();
+    println!("Took path {}", shortest);
+
     Ok(())
 }
