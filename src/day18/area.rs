@@ -68,7 +68,7 @@ pub struct Distances<'a> {
     area: &'a Area,
     pub distances: HashMap<Square, HashMap<Square, Value>>,
     shortests: HashMap<(Square, Vec<char>), ShortestPath>,
-    shortests4: HashMap<([Option<Square>; 4], Vec<char>), ShortestPath>,
+    shortests4: HashMap<([Square; 4], Vec<char>), ShortestPath>,
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
@@ -137,67 +137,52 @@ impl PartialOrd for Progress {
 }
 
 #[derive(Clone, Eq, PartialEq, Debug)]
-enum Last {
-    Start,
-    // The last step was a key (char), collected by a robot (usize)
-    Key(char, usize),
-    // The last step was by a robot (usize) through a door
-    Door(usize),
-}
-
-#[derive(Clone, Eq, PartialEq, Debug)]
 struct Progress4 {
     distance: Value,
     // None when it is finished
-    square: [Option<Square>; 4],
+    square: [Square; 4],
     collected: Vec<char>,
     path: Vec<Square>,
-    last: Last,
+    current_bot: Option<usize>,
 }
 
 impl Progress4 {
-    fn start(location: [Option<Square>; 4]) -> Self {
+    fn start(location: [Square; 4]) -> Self {
         let mut start = Progress4 {
             distance: 0,
             square: location,
             collected: Default::default(),
-            path: location.iter().filter_map(|&sq| sq).collect(),
-            last: Last::Start,
+            path: location.iter().copied().collect(),
+            current_bot: None,
         };
         for &sq in &location {
-            if let Some(Square::Key(c)) = sq {
+            if let Square::Key(c) = sq {
                 start.collected.push(c);
             }
         }
         start
     }
 
-    fn step(&self, ix: usize, location: Option<Square>, dist: Value) -> Self {
+    fn step(&self, ix: usize, location: Square, dist: Value) -> Self {
         let mut new = Progress4 {
             distance: self.distance + dist,
             square: self.square,
             collected: self.collected.clone(),
             path: self.path.clone(),
-            last: self.last.clone(),
+            current_bot: Some(ix),
         };
         new.square[ix] = location;
+        new.path.push(location);
 
-        if let Some(sq) = location {
-            new.path.push(sq);
-            match sq {
-                Square::Key(c) => {
-                    new.last = Last::Key(c, ix);
-                    new.collected.push(c);
-                    new.collected.sort();
-                    new.collected.dedup();
+        if let Square::Key(c) = location {
+            match new.collected.binary_search(&c) {
+                Ok(_) => {}
+                Err(cix) => {
+                    // This is a new key, so the current_bot can change
+                    new.collected.insert(cix, c);
+                    new.current_bot = None;
                 }
-                Square::Door(_) => {
-                    new.last = Last::Door(ix);
-                }
-                _ => {}
             }
-        } else {
-            new.last = Last::Start;
         }
 
         new
@@ -231,8 +216,7 @@ impl fmt::Display for Progress4 {
         write!(f, "Progress4[{} ", self.distance)?;
 
         for &loc in &self.square {
-            let c = loc.map(char::from).unwrap_or('-');
-            write!(f, "{}", c)?;
+            write!(f, "{}", char::from(loc))?;
         }
 
         write!(f, " (")?;
@@ -327,13 +311,7 @@ impl<'a> Distances<'a> {
         None
     }
 
-    fn step4(
-        &mut self,
-        p: &Progress4,
-        ix: usize,
-        next: Option<Square>,
-        dist: Value,
-    ) -> Option<Progress4> {
+    fn step4(&mut self, p: &Progress4, ix: usize, next: Square, dist: Value) -> Option<Progress4> {
         let p = p.step(ix, next, dist);
         let graph_key = (p.square, p.collected.clone());
         match self.shortests4.entry(graph_key) {
@@ -354,10 +332,10 @@ impl<'a> Distances<'a> {
 
     pub fn shortest_subs(&mut self) -> Option<ShortestPath> {
         let initial = Progress4::start([
-            Some(Square::SubEntrance(0)),
-            Some(Square::SubEntrance(1)),
-            Some(Square::SubEntrance(2)),
-            Some(Square::SubEntrance(3)),
+            Square::SubEntrance(0),
+            Square::SubEntrance(1),
+            Square::SubEntrance(2),
+            Square::SubEntrance(3),
         ]);
 
         let mut queue = BinaryHeap::from(vec![initial]);
@@ -371,56 +349,13 @@ impl<'a> Distances<'a> {
                 return Some(p.into());
             }
 
-            for ix in 0..4 {
-                let current_square = match p.square[ix] {
-                    Some(sq) => sq,
-                    None => {
-                        // If this robot has finished already, then no more
-                        // steps for it
-                        continue;
-                    }
-                };
+            let ixs = match p.current_bot {
+                Some(ix) => vec![ix],
+                None => vec![0, 1, 2, 3],
+            };
 
-                // The robots take turns. Any robot can start.
-                //
-                // When it is a robot's turn, the only way for turns to switch is for the next
-                match p.last {
-                    // If we just started, then any robot (including this one)
-                    // can take a step
-                    Last::Start => {}
-
-                    // If this robot took the last step, it can take the next step
-                    Last::Key(_, last_ix) if last_ix == ix => {
-                        // And additionally, this robot can also stop for good
-                        if let Some(next_progress) = self.step4(&p, ix, None, 0) {
-                            queue.push(next_progress);
-                        }
-                    }
-                    Last::Door(last_ix) if last_ix == ix => {}
-
-                    // If robot last_ix went through a door, then last_ix must
-                    // also take the next step. This robot cannot.
-                    Last::Door(_) => continue,
-
-                    // If robot last_ix took the last step and picked up a key,
-                    // then any robot (including this one, ix) can go through
-                    // the corresponding door
-                    Last::Key(k, _) => {
-                        let next_square = Square::Door(k.to_ascii_uppercase());
-                        let next_possibilities = self.distances.get(&current_square).unwrap();
-                        if let Some(&dist) = next_possibilities.get(&next_square) {
-                            // Robot ix can go through door K, so it does, and it's now ix's "Turn"
-                            if let Some(next_progress) = self.step4(&p, ix, Some(next_square), dist)
-                            {
-                                queue.push(next_progress);
-                            }
-                        }
-
-                        continue;
-                    }
-                }
-
-                // If we made it here, then the current robot is free to step in any direction
+            for ix in ixs {
+                let current_square = p.square[ix];
 
                 // log::debug!("  Trying {}", i
                 let possibilities: Vec<(Square, Value)> = self
@@ -440,7 +375,7 @@ impl<'a> Distances<'a> {
                         }
                     };
 
-                    if let Some(next_progress) = self.step4(&p, ix, Some(next), dist) {
+                    if let Some(next_progress) = self.step4(&p, ix, next, dist) {
                         queue.push(next_progress);
                     }
                 }
