@@ -5,17 +5,17 @@ name = "aoc"
 version = "0.1.0"
 
 [dependencies]
-anyhow = "1.0.28"
-thiserror = "1.0.14"
-log = "0.4.8"
-env_logger = "0.7.1"
-clap = "2.33.0"
-itertools = "0.9.0"
-num = "0.2.1"
-text_io = "0.1.8"
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+env_logger = "0.7"
+clap = "2.33"
+itertools = "0.9"
+num = "0.3"
+text_io = "0.1"
 
 [dev-dependencies]
-test-env-log = "0.2.2"
+test-env-log = "0.2"
 criterion = "0.3"
 
 [[bench]]
