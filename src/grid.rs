@@ -210,6 +210,19 @@ impl<T> Map<T> {
     }
 }
 
+impl<T: Clone> Map<T> {
+    pub fn convert<S: From<T>>(self: &Self) -> Map<S> {
+        Map {
+            shape: self.shape,
+            grid: self
+                .grid
+                .iter()
+                .map(|(&k, v)| (k, v.clone().into()))
+                .collect(),
+        }
+    }
+}
+
 impl<T: Clone + Into<char>> fmt::Display for Map<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (maxx, maxy) = self.shape;
