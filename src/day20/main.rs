@@ -60,10 +60,40 @@ pub struct Route {
     total_distance: Value,
 
     pub start: Position,
-    // Distance walked to a portal; portal gone through
-    pub legs: Vec<(Value, Label)>,
-    // Distance to the end after last portal; position at end
-    pub end: (Value, Position),
+    // Distance walked to a portal; portal gone through; is_outer
+    pub legs: Vec<(Value, Label, bool)>,
+    // Distance to the end after last portal; Level; position at end
+    pub end: (Value, Value, Position),
+}
+
+impl std::fmt::Display for Route {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Route starting at {}:\n", self.start)?;
+
+        let mut level = 0;
+        for &(d, label, is_outer) in &self.legs {
+            let portal_str = if is_outer {
+                level -= 1;
+                "outer"
+            } else {
+                level += 1;
+                "inner"
+            };
+            write!(
+                f,
+                "  Stepped {} to {} {} ({})\n",
+                d, portal_str, label, level
+            )?;
+        }
+
+        let (d, elevel, exit) = self.end;
+        write!(
+            f,
+            "  Stepped {} to Exit at ({}=={}) {}\n",
+            d, level, elevel, exit
+        )?;
+        write!(f, "Total Distance: {}", self.total_distance)
+    }
 }
 
 impl Route {
@@ -72,40 +102,42 @@ impl Route {
             total_distance: 0,
             start: position,
             legs: Vec::new(),
-            end: (0, position),
+            end: (0, 0, position),
         }
     }
 
     fn step(&mut self, direction: Compass) {
-        let (d, pos) = self.end;
+        let (d, lvl, pos) = self.end;
         self.total_distance += 1;
-        self.end = (d + 1, pos + direction);
+        self.end = (d + 1, lvl, pos + direction);
     }
 
-    fn jump(&mut self, position: Position, label: Label) {
-        let (d, _) = self.end;
+    fn jump(&mut self, position: Position, label: Label, level_change: Value) {
+        let (d, lvl, _) = self.end;
         self.total_distance += 1;
-        self.legs.push((d, label));
-        self.end = (0, position);
+        self.legs.push((d, label, level_change < 0));
+        self.end = (0, lvl + level_change, position);
     }
 }
 
 impl Maze {
-    pub fn shortest_route(&self) -> anyhow::Result<Route> {
+    pub fn shortest_route(&self, recursive: bool) -> anyhow::Result<Route> {
         let start = Route::start(self.start);
 
-        let mut seen: HashMap<Position, Value> = HashMap::new();
+        // Maps (Position, Level) -> Dist
+        let mut seen: HashMap<(Position, Value), Value> = HashMap::new();
         let mut queue: BinaryHeap<Reverse<Route>> = BinaryHeap::new();
         queue.push(Reverse(start));
 
         while let Some(Reverse(next)) = queue.pop() {
-            let (_, pos) = next.end;
-            if pos == self.end {
+            let (_, level, pos) = next.end;
+            if pos == self.end && (!recursive || level == 0) {
                 // We've made it to the end!
                 return Ok(next);
             }
 
-            match seen.entry(pos) {
+            let seen_key = if recursive { (pos, level) } else { (pos, 0) };
+            match seen.entry(seen_key) {
                 Entry::Vacant(v) => {
                     v.insert(next.total_distance);
                 }
@@ -142,32 +174,44 @@ impl Maze {
                     }
                     Some(Square::Entrance) => continue,
                     Some(Square::Exit) => {
+                        if recursive && level != 0 {
+                            // If we are in a recursive maze, and the level is
+                            // not 0, we can't use the exit.
+                            continue;
+                        }
                         let mut new = next.clone();
                         new.step(d);
                         return Ok(new);
                     }
                     Some(Square::Portal(label)) => {
-                        let &(p1, p2) = self
+                        let &(outer, inner) = self
                             .portals
                             .get(&label)
                             .ok_or_else(|| anyhow::format_err!("Can't find portal {}", label))?;
-                        let jumped_pos = match new_pos {
-                            p if p1 == p => p2,
-                            p if p2 == p => p1,
+                        let (jumped_pos, level_change) = match new_pos {
+                            p if outer == p => (inner, -1),
+                            p if inner == p => (outer, 1),
                             _ => {
                                 return Err(anyhow::format_err!(
                                     "Stepped to {} at portal {}, but it has edges {}-{}",
                                     new_pos,
                                     label,
-                                    p1,
-                                    p2
+                                    outer,
+                                    inner
                                 ));
                             }
                         };
 
+                        if recursive && level + level_change < 0 {
+                            // Can't use an outer portal at level 0
+                            continue;
+                        } else if recursive && level + level_change > 50 {
+                            continue;
+                        }
+
                         let mut new = next.clone();
                         new.step(d);
-                        new.jump(jumped_pos, label);
+                        new.jump(jumped_pos, label, level_change);
                         new
                     }
                 };
@@ -183,9 +227,14 @@ impl Maze {
             }
         }
 
-        todo!()
+        Err(anyhow::format_err!("No end to be found!"))
     }
 }
+
+// struct MazeRoute<'a, 'b> {
+//     maze: &'a Maze,
+//     route: &'b Route,
+// }
 
 #[derive(Error, Debug)]
 pub enum ParseError {
@@ -385,19 +434,26 @@ fn main() -> anyhow::Result<()> {
     file.read_to_string(&mut data)?;
 
     let maze: Maze = str::parse(&data)?;
-    let route = maze.shortest_route()?;
 
     println!("--- Part One ---");
+    let route = maze.shortest_route(false)?;
     println!("Started at {}", route.start);
-    for &(d, label) in &route.legs {
-        println!("  Stepped {} to {}", d, label);
+    for &(d, label, is_outer) in &route.legs {
+        println!(
+            "  Stepped {} to {} {}",
+            d,
+            if is_outer { "outer" } else { "inner" },
+            label
+        );
     }
 
-    let (d, exit) = route.end;
+    let (d, _, exit) = route.end;
     println!("  Stepped {} to Exit at {}", d, exit);
     println!("Total Distance: {}", route.total_distance);
 
     println!("--- Part Two ---");
+    let route = maze.shortest_route(true)?;
+    println!("{}", route);
 
     Ok(())
 }
@@ -501,19 +557,23 @@ YN......#               VT..#....QG
     #[test]
     fn test_shortest1() -> anyhow::Result<()> {
         let maze: Maze = str::parse(EXAMPLE1)?;
-        let shortest = maze.shortest_route()?;
+        let shortest = maze.shortest_route(false)?;
 
         let expected = (
             vec![
-                (4, Label('B', 'C')),
-                (6, Label('D', 'E')),
-                (4, Label('F', 'G')),
+                (4, Label('B', 'C'), false),
+                (6, Label('D', 'E'), false),
+                (4, Label('F', 'G'), true),
             ],
-            (6, maze.end),
+            (6, 1, maze.end),
         );
         assert_eq!((shortest.legs, shortest.end), expected);
 
         assert_eq!(shortest.total_distance, 23);
+
+        // Part Two
+        let shortest = maze.shortest_route(true)?;
+        assert_eq!(shortest.total_distance, 26);
 
         Ok(())
     }
@@ -521,7 +581,7 @@ YN......#               VT..#....QG
     #[test]
     fn test_shortest2() -> anyhow::Result<()> {
         let maze: Maze = str::parse(EXAMPLE2)?;
-        let shortest = maze.shortest_route()?;
+        let shortest = maze.shortest_route(false)?;
 
         let expected = (
             vec![
@@ -533,10 +593,17 @@ YN......#               VT..#....QG
             (maze.end),
         );
 
-        let found = Vec::from_iter(shortest.legs.iter().map(|&(_, l)| l));
-        assert_eq!((found, shortest.end.1), expected);
+        let found = Vec::from_iter(shortest.legs.iter().map(|&(_, l, _)| l));
+        assert_eq!((found, shortest.end.2), expected);
 
         assert_eq!(shortest.total_distance, 58);
+
+        // Part Two
+        let shortest = maze.shortest_route(true);
+        if let Ok(ref route) = shortest {
+            log::warn!("shortest route:\n{}", route);
+        }
+        assert!(shortest.is_err());
 
         Ok(())
     }
