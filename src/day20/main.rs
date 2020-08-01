@@ -1,5 +1,6 @@
+use std::cmp::Reverse;
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{BinaryHeap, HashMap};
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::prelude::*;
@@ -10,6 +11,8 @@ use log::debug;
 use thiserror::Error;
 
 use aoc::grid::{Compass, Map, Position, Token};
+
+type Value = i64;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Label(char, char);
@@ -26,6 +29,8 @@ pub enum Square {
     Wall,
     PortalLabel(char),
     Portal(Label),
+    Entrance,
+    Exit,
 }
 
 impl std::fmt::Display for Square {
@@ -35,6 +40,8 @@ impl std::fmt::Display for Square {
             Square::Wall => '#',
             Square::PortalLabel(c) => c,
             Square::Portal(_) => '-',
+            Square::Entrance => '+',
+            Square::Exit => '+',
         };
 
         write!(f, "{}", c)
@@ -46,6 +53,138 @@ pub struct Maze {
     pub portals: HashMap<Label, (Position, Position)>,
     pub start: Position,
     pub end: Position,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Route {
+    total_distance: Value,
+
+    pub start: Position,
+    // Distance walked to a portal; portal gone through
+    pub legs: Vec<(Value, Label)>,
+    // Distance to the end after last portal; position at end
+    pub end: (Value, Position),
+}
+
+impl Route {
+    fn start(position: Position) -> Self {
+        Route {
+            total_distance: 0,
+            start: position,
+            legs: Vec::new(),
+            end: (0, position),
+        }
+    }
+
+    fn step(&mut self, direction: Compass) {
+        let (d, pos) = self.end;
+        self.total_distance += 1;
+        self.end = (d + 1, pos + direction);
+    }
+
+    fn jump(&mut self, position: Position, label: Label) {
+        let (d, _) = self.end;
+        self.total_distance += 1;
+        self.legs.push((d, label));
+        self.end = (0, position);
+    }
+}
+
+impl Maze {
+    pub fn shortest_route(&self) -> anyhow::Result<Route> {
+        let start = Route::start(self.start);
+
+        let mut seen: HashMap<Position, Value> = HashMap::new();
+        let mut queue: BinaryHeap<Reverse<Route>> = BinaryHeap::new();
+        queue.push(Reverse(start));
+
+        while let Some(Reverse(next)) = queue.pop() {
+            let (_, pos) = next.end;
+            if pos == self.end {
+                // We've made it to the end!
+                return Ok(next);
+            }
+
+            match seen.entry(pos) {
+                Entry::Vacant(v) => {
+                    v.insert(next.total_distance);
+                }
+                Entry::Occupied(mut o) => {
+                    let previous_distance = *o.get();
+                    if previous_distance <= next.total_distance {
+                        // We've been here before, and with a shorter route
+                        log::info!(
+                            "Skipping {}:{}, been here before ({})",
+                            pos,
+                            next.total_distance,
+                            previous_distance
+                        );
+                        continue;
+                    }
+                    o.insert(next.total_distance);
+                }
+            }
+
+            for &d in &Compass::all() {
+                let new_pos = pos + d;
+                let new_route = match self.map.get(new_pos).copied() {
+                    None => return Err(anyhow::format_err!("Somehow we got to the edge {}", pos)),
+                    Some(Square::Wall) => continue,
+                    Some(Square::PortalLabel(_)) => {
+                        // If we just popped out of a portal, then there should
+                        // be an label next to us
+                        continue;
+                    }
+                    Some(Square::Empty) => {
+                        let mut new = next.clone();
+                        new.step(d);
+                        new
+                    }
+                    Some(Square::Entrance) => continue,
+                    Some(Square::Exit) => {
+                        let mut new = next.clone();
+                        new.step(d);
+                        return Ok(new);
+                    }
+                    Some(Square::Portal(label)) => {
+                        let &(p1, p2) = self
+                            .portals
+                            .get(&label)
+                            .ok_or_else(|| anyhow::format_err!("Can't find portal {}", label))?;
+                        let jumped_pos = match new_pos {
+                            p if p1 == p => p2,
+                            p if p2 == p => p1,
+                            _ => {
+                                return Err(anyhow::format_err!(
+                                    "Stepped to {} at portal {}, but it has edges {}-{}",
+                                    new_pos,
+                                    label,
+                                    p1,
+                                    p2
+                                ));
+                            }
+                        };
+
+                        let mut new = next.clone();
+                        new.step(d);
+                        new.jump(jumped_pos, label);
+                        new
+                    }
+                };
+
+                log::info!(
+                    "Stepping {} -> {} ({}): {:?}",
+                    pos,
+                    new_route.end.1,
+                    new_route.total_distance,
+                    new_route,
+                );
+                queue.push(Reverse(new_route));
+            }
+        }
+
+        todo!()
+    }
 }
 
 #[derive(Error, Debug)]
@@ -70,6 +209,9 @@ pub enum ParseError {
 
     #[error("Multiple ends found at {0} and {1}")]
     ExtraEnd(Position, Position),
+
+    #[error("Portal {0} does not map outer <-> inner: found at {1} and {2}")]
+    BadPair(Label, Position, Position),
 }
 
 impl TryFrom<Map<Square>> for Maze {
@@ -81,7 +223,15 @@ impl TryFrom<Map<Square>> for Maze {
         let mut start = None;
         let mut end = None;
 
+        let mut wall_max = (0, 0);
+
         for (&pos, &sq) in &map.grid {
+            if sq == Square::Wall {
+                let (mx, my) = wall_max;
+                let Position(x, y) = pos;
+                wall_max = (x.max(mx), y.max(my));
+                continue;
+            }
             let c = if let Square::PortalLabel(c) = sq {
                 c
             } else {
@@ -152,18 +302,39 @@ impl TryFrom<Map<Square>> for Maze {
         }
 
         let start = start.ok_or(ParseError::MissingStart)?;
+        map.insert(start, Square::Entrance);
         let end = end.ok_or(ParseError::MissingEnd)?;
+        map.insert(end, Square::Exit);
+
+        let is_outer = |p| {
+            let Position(x, y) = p;
+            let (mx, my) = wall_max;
+
+            x == 2 || y == 2 || x == mx || y == my
+        };
 
         let mut portals = HashMap::new();
         for (label, (first, maybe_second)) in pairs {
             let second = maybe_second.ok_or_else(|| ParseError::MissingExit(label))?;
-            // Sort them for consistency
-            let (first, second) = if first < second {
+
+            let (outer, inner) = if is_outer(first) && !is_outer(second) {
                 (first, second)
-            } else {
+            } else if !is_outer(first) && is_outer(second) {
                 (second, first)
+            } else {
+                log::warn!(
+                    "Bad Pair {}: {}:{} {}:{}, walls:({}, {})",
+                    label,
+                    first,
+                    is_outer(first),
+                    second,
+                    is_outer(second),
+                    wall_max.0,
+                    wall_max.1,
+                );
+                return Err(ParseError::BadPair(label, first, second));
             };
-            portals.insert(label, (first, second));
+            portals.insert(label, (outer, inner));
             map.insert(first, Square::Portal(label));
             map.insert(second, Square::Portal(label));
         }
@@ -214,12 +385,27 @@ fn main() -> anyhow::Result<()> {
     file.read_to_string(&mut data)?;
 
     let maze: Maze = str::parse(&data)?;
+    let route = maze.shortest_route()?;
+
+    println!("--- Part One ---");
+    println!("Started at {}", route.start);
+    for &(d, label) in &route.legs {
+        println!("  Stepped {} to {}", d, label);
+    }
+
+    let (d, exit) = route.end;
+    println!("  Stepped {} to Exit at {}", d, exit);
+    println!("Total Distance: {}", route.total_distance);
+
+    println!("--- Part Two ---");
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::iter::FromIterator;
+
     use test_env_log::test;
 
     use super::*;
@@ -287,7 +473,7 @@ YN......#               VT..#....QG
     "#;
 
     #[test]
-    fn test_parse() -> anyhow::Result<()> {
+    fn test_parse1() -> anyhow::Result<()> {
         let maze: Maze = str::parse(EXAMPLE1)?;
         let expected_portals = vec![
             (Label('B', 'C'), (Position(2, 8), Position(9, 6))),
@@ -308,6 +494,49 @@ YN......#               VT..#....QG
     fn test_parse2() -> anyhow::Result<()> {
         let maze: Maze = str::parse(EXAMPLE2)?;
         assert_eq!(maze.portals.len(), 10);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_shortest1() -> anyhow::Result<()> {
+        let maze: Maze = str::parse(EXAMPLE1)?;
+        let shortest = maze.shortest_route()?;
+
+        let expected = (
+            vec![
+                (4, Label('B', 'C')),
+                (6, Label('D', 'E')),
+                (4, Label('F', 'G')),
+            ],
+            (6, maze.end),
+        );
+        assert_eq!((shortest.legs, shortest.end), expected);
+
+        assert_eq!(shortest.total_distance, 23);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_shortest2() -> anyhow::Result<()> {
+        let maze: Maze = str::parse(EXAMPLE2)?;
+        let shortest = maze.shortest_route()?;
+
+        let expected = (
+            vec![
+                Label('A', 'S'),
+                Label('Q', 'G'),
+                Label('B', 'U'),
+                Label('J', 'O'),
+            ],
+            (maze.end),
+        );
+
+        let found = Vec::from_iter(shortest.legs.iter().map(|&(_, l)| l));
+        assert_eq!((found, shortest.end.1), expected);
+
+        assert_eq!(shortest.total_distance, 58);
 
         Ok(())
     }
