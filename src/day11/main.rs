@@ -5,8 +5,6 @@ use std::io::prelude::*;
 use std::io::BufReader;
 use std::iter::FromIterator;
 
-
-
 use clap::{App, Arg};
 use log::debug;
 

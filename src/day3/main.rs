@@ -5,7 +5,6 @@ use std::io::BufReader;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-
 use clap::{App, Arg};
 use log::debug;
 
