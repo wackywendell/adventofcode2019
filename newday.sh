@@ -55,11 +55,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::clippy::unnecessary_wraps)]
 #[cfg(test)]
 mod tests {
     use test_env_log::test;
 
-    // use super::*;
+    #[allow(unused_imports)]
+    use super::*;
 
     #[test]
     fn test_thing() -> anyhow::Result<()> {

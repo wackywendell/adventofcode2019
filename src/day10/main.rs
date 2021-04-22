@@ -53,7 +53,7 @@ impl Point {
 impl std::ops::Sub for Point {
     type Output = Self;
 
-    fn sub(self: Self, rhs: Self) -> Self {
+    fn sub(self, rhs: Self) -> Self {
         Point(self.0 - rhs.0, self.1 - rhs.1)
     }
 }
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tan() -> anyhow::Result<()> {
+    fn test_tan() {
         let ang = Point(0, -3).degrees();
         assert!((ang - 0.0) < 1e-8);
 
@@ -307,17 +307,13 @@ mod tests {
 
         assert_eq!(sorted, points_in_order);
         assert_ne!(sorted, points_in_reverse);
-
-        Ok(())
     }
 
     #[test]
-    fn test_num() -> anyhow::Result<()> {
+    fn test_num() {
         assert_eq!(gcd(30, 21), 3);
         assert_eq!(gcd(30, -21), 3);
         assert_eq!(gcd(-30, -21), 3);
-
-        Ok(())
     }
 
     const EXAMPLE1: &str = r#"
@@ -414,7 +410,7 @@ mod tests {
     }
 
     #[test]
-    fn test_visible() -> anyhow::Result<()> {
+    fn test_visible() {
         let locations = vec![
             Point(1, 0),
             Point(4, 0),
@@ -445,8 +441,6 @@ mod tests {
         for &(pt, count) in &visibilities {
             assert_eq!(asteroids.visible(pt), count);
         }
-
-        Ok(())
     }
 
     #[test]

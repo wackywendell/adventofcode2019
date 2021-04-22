@@ -49,7 +49,7 @@ impl fmt::Display for Compass {
 impl ops::Add<Compass> for Position {
     type Output = Self;
 
-    fn add(self: Self, rhs: Compass) -> Self {
+    fn add(self, rhs: Compass) -> Self {
         let Position(x, y) = self;
         match rhs {
             Compass::North => Position(x, y - 1),
@@ -63,7 +63,7 @@ impl ops::Add<Compass> for Position {
 impl ops::Add<(Value, Value)> for Position {
     type Output = Self;
 
-    fn add(self: Self, (dx, dy): (Value, Value)) -> Self {
+    fn add(self, (dx, dy): (Value, Value)) -> Self {
         let Position(x, y) = self;
         Position(x + dx, y + dy)
     }
@@ -72,7 +72,7 @@ impl ops::Add<(Value, Value)> for Position {
 impl ops::Add<Turn> for Compass {
     type Output = Self;
 
-    fn add(self: Self, rhs: Turn) -> Self {
+    fn add(self, rhs: Turn) -> Self {
         match (self, rhs) {
             (Compass::North, Turn::Left) => Compass::West,
             (Compass::North, Turn::Right) => Compass::East,
@@ -118,7 +118,7 @@ pub enum Token<T> {
 pub trait FromSequence<C>: Sized {
     type Error;
 
-    fn to_token(c: C) -> Result<Token<Self>, Self::Error>;
+    // fn to_token(c: C) -> Result<Token<Self>, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,7 +211,7 @@ impl<T> Map<T> {
 }
 
 impl<T: Clone> Map<T> {
-    pub fn convert<S: From<T>>(self: &Self) -> Map<S> {
+    pub fn convert<S: From<T>>(&self) -> Map<S> {
         Map {
             shape: self.shape,
             grid: self
@@ -234,7 +234,7 @@ impl<T: Clone + Into<char>> fmt::Display for Map<T> {
                 };
                 write!(f, "{}", c)?;
             }
-            write!(f, "\n")?;
+            writeln!(f)?;
         }
         Ok(())
     }
@@ -349,7 +349,7 @@ mod tests {
     use super::*;
 
     // Adapted from day 15
-    const EXAMPLE1: &'static str = r#"
+    const EXAMPLE1: &str = r#"
     -##---
     #..##-
     #.#..#

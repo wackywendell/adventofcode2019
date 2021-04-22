@@ -38,7 +38,7 @@ impl Vector {
 impl ops::Sub for Vector {
     type Output = Self;
 
-    fn sub(self: Self, rhs: Self) -> Self {
+    fn sub(self, rhs: Self) -> Self {
         Vector(self.0 - rhs.0, self.1 - rhs.1, self.2 - rhs.2)
     }
 }
@@ -46,7 +46,7 @@ impl ops::Sub for Vector {
 impl ops::Add for Vector {
     type Output = Self;
 
-    fn add(self: Self, rhs: Self) -> Self {
+    fn add(self, rhs: Self) -> Self {
         Vector(self.0 + rhs.0, self.1 + rhs.1, self.2 + rhs.2)
     }
 }

@@ -68,7 +68,7 @@ pub struct Route {
 
 impl std::fmt::Display for Route {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Route starting at {}:\n", self.start)?;
+        writeln!(f, "Route starting at {}:", self.start)?;
 
         let mut level = 0;
         for &(d, label, is_outer) in &self.legs {
@@ -79,20 +79,16 @@ impl std::fmt::Display for Route {
                 level += 1;
                 "inner"
             };
-            write!(
-                f,
-                "  Stepped {} to {} {} ({})\n",
-                d, portal_str, label, level
-            )?;
+            writeln!(f, "  Stepped {} to {} {} ({})", d, portal_str, label, level)?;
         }
 
         let (d, elevel, exit) = self.end;
-        write!(
+        writeln!(
             f,
-            "  Stepped {} to Exit at ({}=={}) {}\n",
+            "  Stepped {} to Exit at ({}=={}) {}",
             d, level, elevel, exit
         )?;
-        write!(f, "Total Distance: {}", self.total_distance)
+        writeln!(f, "Total Distance: {}", self.total_distance)
     }
 }
 
@@ -179,7 +175,7 @@ impl Maze {
                             // not 0, we can't use the exit.
                             continue;
                         }
-                        let mut new = next.clone();
+                        let mut new = next;
                         new.step(d);
                         return Ok(new);
                     }
@@ -202,10 +198,9 @@ impl Maze {
                             }
                         };
 
-                        if recursive && level + level_change < 0 {
+                        if recursive && ((level + level_change < 0) || (level + level_change > 50))
+                        {
                             // Can't use an outer portal at level 0
-                            continue;
-                        } else if recursive && level + level_change > 50 {
                             continue;
                         }
 
@@ -364,7 +359,7 @@ impl TryFrom<Map<Square>> for Maze {
 
         let mut portals = HashMap::new();
         for (label, (first, maybe_second)) in pairs {
-            let second = maybe_second.ok_or_else(|| ParseError::MissingExit(label))?;
+            let second = maybe_second.ok_or(ParseError::MissingExit(label))?;
 
             let (outer, inner) = if is_outer(first) && !is_outer(second) {
                 (first, second)
@@ -460,8 +455,6 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::FromIterator;
-
     use test_env_log::test;
 
     use super::*;
@@ -593,7 +586,7 @@ YN......#               VT..#....QG
             (maze.end),
         );
 
-        let found = Vec::from_iter(shortest.legs.iter().map(|&(_, l, _)| l));
+        let found = shortest.legs.iter().map(|&(_, l, _)| l).collect();
         assert_eq!((found, shortest.end.2), expected);
 
         assert_eq!(shortest.total_distance, 58);

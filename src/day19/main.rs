@@ -174,7 +174,7 @@ impl TractorReader {
 
         while self.rect_size(Position(x, y)) == (0, 0) {
             if x > y * 3 + 10 {
-                y = y + 1;
+                y += 1;
                 x = 0;
             } else {
                 x += 1;
@@ -275,7 +275,7 @@ fn main() -> anyhow::Result<()> {
 
     println!("--- Part Two ---");
 
-    let mut tr3 = TractorReader::from_computer(orig_cp.clone(), (3, 3));
+    let mut tr3 = TractorReader::from_computer(orig_cp, (3, 3));
     let sz = 100;
 
     let start = Instant::now();
@@ -288,11 +288,13 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::clippy::unnecessary_wraps)]
 #[cfg(test)]
 mod tests {
     use test_env_log::test;
 
-    // use super::*;
+    #[allow(unused_imports)]
+    use super::*;
 
     #[test]
     fn test_thing() -> anyhow::Result<()> {

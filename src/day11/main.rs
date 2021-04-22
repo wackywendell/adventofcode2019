@@ -149,7 +149,7 @@ impl Spaceship {
         Ok(())
     }
 
-    pub fn show<'a>(&'a self) -> impl Iterator<Item = String> + 'a {
+    pub fn show(&self) -> impl Iterator<Item = String> + '_ {
         let (mut minx, mut maxx) = (0, 0);
         let (mut miny, mut maxy) = (0, 0);
         for &(x, y) in self.paint.keys() {

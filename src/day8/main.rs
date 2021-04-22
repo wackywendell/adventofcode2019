@@ -12,7 +12,7 @@ pub struct Rendered {
 }
 
 impl Rendered {
-    pub fn show<'a>(&'a self) -> impl Iterator<Item = String> + 'a {
+    pub fn show(&self) -> impl Iterator<Item = String> + '_ {
         self.pixels.iter().map(|row| {
             String::from_iter(row.iter().map(|p| match p {
                 0 => ' ',
@@ -217,8 +217,6 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::FromIterator;
-
     use test_env_log::test;
 
     use super::*;
@@ -245,7 +243,7 @@ mod tests {
         let counts0 = img.layer_count(0);
         let exp0: Vec<(u8, usize)> = vec![(1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 1)];
 
-        assert_eq!(counts0, HashMap::from_iter(exp0.iter().copied()));
+        assert_eq!(counts0, exp0.iter().copied().collect());
 
         Ok(())
     }

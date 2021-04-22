@@ -56,7 +56,7 @@ impl From<Square> for char {
             Square::Wall => '#',
             Square::Empty => '.',
             Square::Entrance => '@',
-            Square::SubEntrance(n) => (('0' as u8) + n) as char,
+            Square::SubEntrance(n) => (b'0' + n) as char,
             Square::Key(c) => c,
             Square::Door(c) => c,
         }
@@ -106,14 +106,14 @@ impl Progress {
         new.path.push(sq);
         if let Square::Key(c) = sq {
             new.collected.push(c);
-            new.collected.sort();
+            new.collected.sort_unstable();
             new.collected.dedup();
         }
 
         new
     }
 
-    fn ordering_key<'a>(&'a self) -> impl Ord + 'a {
+    fn ordering_key(&self) -> impl Ord + '_ {
         // The less distance gone, and the more collected, the better
         (
             Reverse(self.distance),
@@ -188,7 +188,7 @@ impl Progress4 {
         new
     }
 
-    fn ordering_key<'a>(&'a self) -> impl Ord + 'a {
+    fn ordering_key(&self) -> impl Ord + '_ {
         // The less distance gone, and the more collected, the better
         (
             Reverse(self.distance),
@@ -428,7 +428,7 @@ impl FromStr for Area {
             }
         }
 
-        return Ok(Area { map, keys });
+        Ok(Area { map, keys })
     }
 }
 
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn test_progress_order() -> anyhow::Result<()> {
+    fn test_progress_order() {
         let create = |start: char, steps: Vec<(Value, char)>| {
             let start = Square::try_from(start).unwrap();
             let mut p = Progress::start(start);
@@ -618,8 +618,6 @@ mod tests {
         assert!(p1 > p2);
         assert!(p1 > p3);
         assert!(p3 > p2);
-
-        Ok(())
     }
 
     #[test]

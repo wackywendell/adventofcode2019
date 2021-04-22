@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::iter::FromIterator;
 
 use clap::{App, Arg};
 use itertools::Itertools;
@@ -96,7 +95,7 @@ pub fn max_output(
 ) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
     let mut max_found = None;
 
-    let seq0 = Vec::from_iter(0..(inputs as Value));
+    let seq0: Vec<i64> = (0..(inputs as Value)).collect();
 
     let perms = seq0.iter().copied().permutations(seq0.len());
 
@@ -125,7 +124,7 @@ pub fn max_output(
 pub fn max_feedback(instructions: Vec<Value>) -> anyhow::Result<(Vec<Value>, Vec<Value>)> {
     let mut max_found = None;
 
-    let seq0 = Vec::from_iter(5..=9);
+    let seq0: Vec<i64> = (5..=9).collect();
 
     let perms = seq0.iter().copied().permutations(seq0.len());
 

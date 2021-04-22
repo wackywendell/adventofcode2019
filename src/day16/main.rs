@@ -233,7 +233,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_pattern() -> anyhow::Result<()> {
+    fn test_pattern() {
         let p1 = BasicPattern::new(1);
         let iter = p1.into_iter();
         let expected = vec![1, 0, -1, 0, 1, 0, -1, 0];
@@ -245,8 +245,6 @@ mod tests {
         let expected = vec![0, 1, 1, 0, 0, -1, -1, 0, 0, 1, 1, 0, 0, -1, -1, 0, 0];
         let values: Vec<i64> = iter.take(expected.len()).collect();
         assert_eq!(values, expected);
-
-        Ok(())
     }
 
     #[test]

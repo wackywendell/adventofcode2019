@@ -45,7 +45,7 @@ impl fmt::Display for Compass {
 impl std::ops::Add<Compass> for Loc {
     type Output = Self;
 
-    fn add(self: Self, rhs: Compass) -> Self {
+    fn add(self, rhs: Compass) -> Self {
         let Loc(x, y) = self;
         match rhs {
             Compass::North => Loc(x, y - 1),
@@ -58,7 +58,7 @@ impl std::ops::Add<Compass> for Loc {
 impl std::ops::Add<Turn> for Compass {
     type Output = Self;
 
-    fn add(self: Self, rhs: Turn) -> Self {
+    fn add(self, rhs: Turn) -> Self {
         match (self, rhs) {
             (Compass::North, Turn::Left) => Compass::West,
             (Compass::North, Turn::Right) => Compass::East,

@@ -3,7 +3,6 @@ use std::fmt;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::iter::FromIterator;
 use std::str::FromStr;
 
 use clap::{App, Arg};
@@ -96,7 +95,7 @@ impl Orbits {
         let p1s = self.parents(start);
         let p2s = self.parents(end);
 
-        let seen: HashSet<&str> = HashSet::from_iter(p1s.iter().copied());
+        let seen: HashSet<&str> = p1s.iter().copied().collect();
 
         let mut doubled = 0;
         for &v in &p2s {

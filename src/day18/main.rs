@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
     println!("Took path {}", shortest);
 
     println!("-- Part Two --");
-    let mut split_area = area.clone();
+    let mut split_area = area;
     split_area.split_entrance();
     println!("Area:\n{}", split_area.map);
     let mut distances = split_area.distances();
