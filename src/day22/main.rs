@@ -113,8 +113,33 @@ impl ActionSet {
         Ok(())
     }
 
-    pub fn invert(self) -> anyhow::Result<()> {
-        todo!()
+    pub fn invert(&self) -> anyhow::Result<Self> {
+        if self.mul == 1 {
+            return Ok(ActionSet {
+                mul: 1,
+                add: (-self.add).rem_euclid(self.length),
+                length: self.length,
+            });
+        }
+
+        let mul = self.mul.rem_euclid(self.length);
+
+        let inv = multiplicative_inverse(mul as u128, self.length as u128);
+        let inv = inv.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot take the inverse of {} in base {}",
+                self.mul,
+                self.length
+            )
+        })? as i128;
+
+        let add = (inv * (-self.add)).rem_euclid(self.length);
+
+        Ok(ActionSet {
+            mul: inv,
+            add,
+            length: self.length,
+        })
     }
 
     pub fn pow(&self, pow: usize) -> anyhow::Result<Self> {
@@ -573,15 +598,74 @@ mod tests {
             };
             println!("  Actions: {:?}^{} = {:?}", action_set, p, set);
 
+            let inverse = set.invert()?;
             for (ix, &card) in start.cards.iter().enumerate() {
                 let new_ix = set.apply(ix);
                 assert_eq!(card, deck.cards[new_ix]);
+                assert_eq!(
+                    ix,
+                    inverse.apply(new_ix),
+                    "{:?} => {:?} :: {} => {} != {}",
+                    set,
+                    inverse,
+                    new_ix,
+                    inverse.apply(new_ix),
+                    ix
+                );
             }
             successes += 1;
         }
 
         assert!(successes > power / 3, "{} successes / {}", successes, power);
         assert!(successes > 2, "{} successes / {}", successes, power);
+
+        Ok(())
+    }
+
+    const INSTRUCTIONS6: &str = "\
+    deal into new stack
+    cut -34801
+    deal with increment 78188108
+    deal into new stack
+    cut 71188192
+    cut -318881181
+    deal with increment 71181888880008192
+    cut 861610
+    deal with increment 597109981
+    deal into new stack
+    deal with increment 171798
+    cut -40098101
+    ";
+
+    #[test]
+    fn test_big_pow() -> anyhow::Result<()> {
+        let n_cards = 119315717514047;
+        let n_reps = 101741582076661;
+        let actions: Vec<Action> = parse_iter(INSTRUCTIONS6.lines())?;
+        let set = ActionSet::from_actions(n_cards, actions.iter().copied());
+        let inv = set.invert()?;
+
+        let rep = set.pow(n_reps)?;
+        let rep_inv = rep.invert()?;
+        assert_eq!(inv.pow(n_reps)?, rep_inv);
+
+        for ix in 0..1000 {
+            let new_ix = set.apply(ix);
+            let rev = inv.apply(new_ix);
+            assert_eq!(ix, rev);
+
+            let new_ix = inv.apply(ix);
+            let rev = set.apply(new_ix);
+            assert_eq!(ix, rev);
+
+            let new_ix = rep.apply(ix);
+            let rev = rep_inv.apply(new_ix);
+            assert_eq!(ix, rev);
+
+            let new_ix = rep_inv.apply(ix);
+            let rev = rep.apply(new_ix);
+            assert_eq!(ix, rev);
+        }
 
         Ok(())
     }
