@@ -7,14 +7,18 @@ use log::debug;
 
 use aoc::intcomp::{IntComp, OutputVec, Stopped};
 
+/*
 const INTO_HOLE_PROGRAM: &str = "\
 NOT D J
 WALK
 ";
+*/
 
 /*
 ((!A || !B || !C) && D)
 */
+
+/*
 const JUMP_PROGRAM1: &str = "\
 NOT A J
 NOT B T
@@ -24,6 +28,7 @@ OR T J
 AND D J
 WALK
 ";
+*/
 
 /*
 ((!A || (!B && ) || !C) && D)
@@ -107,7 +112,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::clippy::unnecessary_wraps)]
 #[cfg(test)]
 mod tests {
     use test_env_log::test;

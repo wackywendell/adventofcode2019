@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::iter::FromIterator;
 
 use clap::{App, Arg};
 use log::debug;
@@ -14,11 +13,13 @@ pub struct Rendered {
 impl Rendered {
     pub fn show(&self) -> impl Iterator<Item = String> + '_ {
         self.pixels.iter().map(|row| {
-            String::from_iter(row.iter().map(|p| match p {
-                0 => ' ',
-                1 => '█',
-                _ => '?',
-            }))
+            row.iter()
+                .map(|p| match p {
+                    0 => ' ',
+                    1 => '█',
+                    _ => '?',
+                })
+                .collect()
         })
     }
 }

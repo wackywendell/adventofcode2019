@@ -5,7 +5,6 @@ use std::fmt::Write;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::iter::FromIterator;
 use std::str::FromStr;
 
 use clap::{App, Arg};
@@ -186,7 +185,7 @@ impl Game {
     pub fn to_strings(&self) -> Vec<String> {
         self.grid
             .iter()
-            .map(|row| String::from_iter(row.iter().map(|&t| char::from(t))))
+            .map(|row| row.iter().map(|&t| char::from(t)).collect())
             .collect()
     }
 }

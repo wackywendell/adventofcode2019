@@ -309,7 +309,7 @@ mod tests {
         for action in actions {
             let start = deck.clone();
             deck.shuffle(action)?;
-            // println!("Action: {:?} {:?} -> {:?}", action, start, deck);
+            println!("Action: {:?} {:?} -> {:?}", action, start, deck);
         }
         assert_eq!(deck, expected);
 

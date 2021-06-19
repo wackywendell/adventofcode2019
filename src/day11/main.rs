@@ -3,7 +3,6 @@ use std::convert::TryFrom;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::iter::FromIterator;
 
 use clap::{App, Arg};
 use log::debug;
@@ -160,11 +159,13 @@ impl Spaceship {
         }
 
         (miny..=maxy).rev().map(move |y| {
-            String::from_iter((minx..=maxx).map(|x| match self.paint.get(&(x, y)) {
-                Some(Color::Black) => ' ',
-                Some(Color::White) => '█',
-                None => ' ',
-            }))
+            (minx..=maxx)
+                .map(|x| match self.paint.get(&(x, y)) {
+                    Some(Color::Black) => ' ',
+                    Some(Color::White) => '█',
+                    None => ' ',
+                })
+                .collect()
         })
     }
 }

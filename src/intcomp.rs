@@ -712,14 +712,14 @@ mod tests {
         let start = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
         let mut cp = IntComp::new(start.clone());
 
-        assert_eq!(cp.step()?, true);
+        assert!(cp.step()?);
         assert_eq!(cp.values[0..4], [1, 9, 10, 70]);
         assert_eq!(cp.position, 4);
 
-        assert_eq!(cp.step()?, true);
+        assert!(cp.step()?);
         assert_eq!(cp.values[0], 3500);
 
-        assert_eq!(cp.step()?, false);
+        assert!(!cp.step()?);
 
         assert_eq!(
             cp.values,
@@ -775,11 +775,11 @@ mod tests {
     fn test_comp_modes() -> anyhow::Result<()> {
         let mut cp = IntComp::from_str("1002,4,3,4,33")?;
 
-        assert_eq!(cp.step()?, true);
+        assert!(cp.step()?);
         assert_eq!(cp.position, 4);
         assert_eq!(cp.values, vec![1002, 4, 3, 4, 99]);
 
-        assert_eq!(cp.step()?, false);
+        assert!(!cp.step()?);
         assert_eq!(cp.state, State::Halted);
         assert_eq!(cp.values, vec![1002, 4, 3, 4, 99]);
 
