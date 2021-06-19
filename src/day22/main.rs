@@ -165,13 +165,10 @@ impl ActionSet {
                 length: self.length,
             });
         }
-        println!("{:?} ^ {}", self, pow);
+        // println!("{:?} ^ {}", self, pow);
         let mul = self.mul.rem_euclid(self.length);
         let add = self.add.rem_euclid(self.length);
-        println!("{:?} ^ {}", self, pow);
         let m_x = modular_exponentiate(mul as u128, pow as u128, self.length as u128) as i128;
-
-        println!("Done 1");
 
         let denom = (mul - 1).rem_euclid(self.length);
         let inv = multiplicative_inverse(denom as u128, self.length as u128);
@@ -182,7 +179,6 @@ impl ActionSet {
                 self.length
             )
         })? as i128;
-        println!("Done 2");
 
         Ok(ActionSet {
             mul: m_x,
@@ -197,17 +193,6 @@ impl ActionSet {
         ix as usize
     }
 }
-
-// impl Action {
-//     fn apply_reverse(self, len: usize, index: usize) ->usize{
-//         match self {
-//             Action::DealNew => len - index,
-//             Action::Cut(n) if n > 0 {
-//                 (index + (n as usize)) & len,
-//             }
-//         }
-//     }
-// }
 
 impl FromStr for Action {
     type Err = anyhow::Error;
@@ -264,7 +249,7 @@ pub fn modular_exponentiate(base: u128, exponent: u128, modulus: u128) -> u128 {
         return 0;
     }
 
-    println!("{}^{} % {}", base, exponent, modulus);
+    // println!("{}^{} % {}", base, exponent, modulus);
     let m = modulus as u128;
     let mut b = base as u128;
     let mut e = exponent as u128;
@@ -272,7 +257,6 @@ pub fn modular_exponentiate(base: u128, exponent: u128, modulus: u128) -> u128 {
 
     let mut result = 1u128;
     while e > 0 {
-        println!("{}^{} % {}", b, e, m);
         if (e % 2) == 1 {
             result = (result * b) % m;
         }
