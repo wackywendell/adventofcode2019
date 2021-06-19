@@ -46,15 +46,89 @@ impl Position {
             }
             Action::DealIncrement(n, false) => (self.index * n) % self.len,
             Action::DealIncrement(n, true) => {
-                let inv = multiplicative_inverse(n, self.len);
+                let inv = multiplicative_inverse(n as u128, self.len as u128);
                 let inv = inv.ok_or_else(|| {
                     anyhow::anyhow!("Cannot take the inverse of {} in base {}", n, self.len)
-                })?;
+                })? as usize;
                 (self.index * inv) % self.len
             }
         };
 
         Ok(Position { index, ..self })
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ActionSet {
+    length: i128,
+    mul: i128,
+    add: i128,
+}
+
+impl ActionSet {
+    pub fn new(length: usize) -> Self {
+        ActionSet {
+            length: length as i128,
+            mul: 1,
+            add: 0,
+        }
+    }
+
+    pub fn append(&mut self, action: Action) -> anyhow::Result<()> {
+        match action {
+            Action::DealNew => {
+                self.mul *= -1;
+                self.add *= -1;
+            }
+            Action::Cut(n) => {
+                self.add = (self.add - n as i128) % self.length;
+            }
+            Action::DealIncrement(n, false) => {
+                self.mul = (self.mul * n as i128) % self.length;
+                self.add = (self.add * n as i128) % self.length;
+            }
+            Action::DealIncrement(n, true) => {
+                let inv = multiplicative_inverse(n as u128, self.length as u128);
+                let inv = inv.ok_or_else(|| {
+                    anyhow::anyhow!("Cannot take the inverse of {} in base {}", n, self.length)
+                })? as u128;
+
+                self.mul = (self.mul * inv as i128) % self.length;
+                self.add = (self.add * inv as i128) % self.length;
+            }
+        };
+
+        Ok(())
+    }
+
+    pub fn pow(&mut self, pow: usize) -> anyhow::Result<()> {
+        // See https://github.com/Aidiakapi/advent_of_code_2019/blob/7a3057e0a9fc754868698203f668b1db95a26b55/src/day22.rs#L138
+        // let f(x) = m x + a
+        // Then f^n(x) = pm^x + (am^x - a) / (m - 1)
+
+        // m^x
+        let m_x = modular_exponentiate(self.mul as u128, pow as u128, self.length as u128) as i128;
+        self.mul = m_x;
+
+        let denom = (self.mul - 1) % self.length;
+        let inv = multiplicative_inverse(denom as u128, self.length as u128);
+        let inv = inv.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot take the inverse of {} in base {}",
+                denom,
+                self.length
+            )
+        })? as i128;
+
+        self.add = (((self.add * m_x - self.add) % self.length) * inv) % self.length;
+
+        Ok(())
+    }
+
+    pub fn apply(&self, index: usize) -> usize {
+        let ix = ((index as i128) * self.mul) % self.length;
+        let ix = (ix + self.add) % self.length;
+        ix as usize
     }
 }
 
@@ -92,11 +166,12 @@ impl FromStr for Action {
     }
 }
 
-fn multiplicative_inverse(n: usize, base: usize) -> Option<usize> {
-    let mut t = 0isize;
-    let mut newt = 1isize;
-    let mut r = base as isize;
-    let mut newr = n as isize;
+/// From: https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm#Computing_multiplicative_inverses_in_modular_structures
+fn multiplicative_inverse(n: u128, base: u128) -> Option<u128> {
+    let mut t = 0i128;
+    let mut newt = 1i128;
+    let mut r = base as i128;
+    let mut newr = n as i128;
 
     while newr != 0 {
         let quotient = r / newr;
@@ -111,10 +186,34 @@ fn multiplicative_inverse(n: usize, base: usize) -> Option<usize> {
     if r > 1 {
         None
     } else if t < 0 {
-        Some((t + base as isize) as usize)
+        Some((t + base as i128) as u128)
     } else {
-        Some(t as usize)
+        Some(t as u128)
     }
+}
+
+// From: https://en.wikipedia.org/wiki/Modular_exponentiation#Pseudocode
+pub fn modular_exponentiate(base: u128, exponent: u128, modulus: u128) -> u128 {
+    if modulus == 1 {
+        return 0;
+    }
+    let mut b = base as u128;
+    let mut e = exponent as u128;
+    let m = modulus as u128;
+    assert!((m - 1) < std::u64::MAX as u128);
+
+    let mut result = 1u128;
+    while e > 0 {
+        if (e % 2) == 1 {
+            result = (result * b) % m;
+        }
+
+        // b^(2e) = (b^2) * e
+        e >>= 1;
+        b = (b * b) % m;
+    }
+
+    result
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -168,14 +267,14 @@ impl Deck {
             Action::Cut(n) => self.cut(n),
             Action::DealIncrement(n, false) => self.deal(n as usize),
             Action::DealIncrement(n, true) => {
-                let inv = multiplicative_inverse(n, self.cards.len());
+                let inv = multiplicative_inverse(n as u128, self.cards.len() as u128);
                 let inv = inv.ok_or_else(|| {
                     anyhow::anyhow!(
                         "Cannot take the inverse of {} in base {}",
                         n,
                         self.cards.len()
                     )
-                })?;
+                })? as u128;
                 self.deal(inv as usize)
             }
         };
@@ -347,7 +446,7 @@ mod tests {
         let examples: Vec<(usize, usize)> = vec![(7, 15), (213, 391), (37, 480)];
 
         for &(n, length) in &examples {
-            let m = multiplicative_inverse(n, length).unwrap();
+            let m = multiplicative_inverse(n as u128, length as u128).unwrap() as usize;
             assert_eq!(
                 (n * m) % length,
                 1,
