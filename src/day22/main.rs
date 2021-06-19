@@ -41,8 +41,8 @@ impl Position {
         let index = match action {
             Action::DealNew => self.len - self.index - 1,
             Action::Cut(n) => {
-                let n = (n % (self.len as isize)) as usize;
-                (self.index + n) % self.len
+                let shift = ((self.len as isize) - n) as usize;
+                (self.index + shift) % self.len
             }
             Action::DealIncrement(n, false) => (self.index * n) % self.len,
             Action::DealIncrement(n, true) => {
@@ -368,6 +368,22 @@ mod tests {
         for action in actions {
             let start = deck.clone();
             deck.shuffle(action)?;
+            println!("Shuffled {:?}: {:?} -> {:?}", action, start, deck);
+            for (ix, &val) in start.cards.iter().enumerate() {
+                let pos = Position {
+                    index: ix,
+                    len: deck.cards.len(),
+                };
+                let next = pos.apply(action)?;
+                println!(
+                    "  {} -> {}, but {} != {}",
+                    pos.index, next.index, val, deck.cards[next.index]
+                );
+                assert_eq!(val, deck.cards[next.index]);
+                let rev = next.apply(action.invert())?;
+                assert_eq!(rev, pos);
+            }
+
             deck.shuffle(action.invert())?;
             assert_eq!(start, deck);
             deck.shuffle(action)?;
