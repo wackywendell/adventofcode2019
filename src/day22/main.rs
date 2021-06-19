@@ -389,15 +389,27 @@ fn main() -> anyhow::Result<()> {
     println!("Found {} actions", actions.len());
 
     let mut deck = Deck::new(0..=10006);
-    for action in actions {
+    let aset = ActionSet::from_actions(deck.cards.len(), actions.iter().copied());
+    for &action in &actions {
         deck.shuffle(action)?;
     }
+
+    println!("Expect card 2019 at {}", aset.apply(2019));
 
     for (i, &card) in deck.cards.iter().enumerate() {
         if card == 2019 {
             println!("Found card 2019 at {}", i);
         }
     }
+
+    // Part 2
+    let big_deck_size = 119315717514047;
+    let n_reps = 101741582076661;
+    let aset2 = ActionSet::from_actions(big_deck_size, actions.iter().copied())
+        .invert()?
+        .pow(n_reps)?;
+
+    println!("Expect position 2020 to contain {}", aset2.apply(2020));
 
     Ok(())
 }
