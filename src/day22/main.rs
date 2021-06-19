@@ -74,11 +74,20 @@ impl ActionSet {
         }
     }
 
+    pub fn from_actions<I: IntoIterator<Item = Action>>(length: usize, actions: I) -> Self {
+        let mut set = ActionSet::new(length);
+        for a in actions {
+            set.append(a).unwrap();
+        }
+
+        set
+    }
+
     pub fn append(&mut self, action: Action) -> anyhow::Result<()> {
         match action {
             Action::DealNew => {
                 self.mul *= -1;
-                self.add *= -1;
+                self.add = -self.add + self.length - 1;
             }
             Action::Cut(n) => {
                 self.add = (self.add - n as i128) % self.length;
@@ -98,19 +107,48 @@ impl ActionSet {
             }
         };
 
+        self.mul %= self.length;
+        self.add %= self.length;
+
         Ok(())
     }
 
-    pub fn pow(&mut self, pow: usize) -> anyhow::Result<()> {
+    pub fn invert(self) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    pub fn pow(&self, pow: usize) -> anyhow::Result<Self> {
         // See https://github.com/Aidiakapi/advent_of_code_2019/blob/7a3057e0a9fc754868698203f668b1db95a26b55/src/day22.rs#L138
         // let f(x) = m x + a
         // Then f^n(x) = pm^x + (am^x - a) / (m - 1)
 
         // m^x
-        let m_x = modular_exponentiate(self.mul as u128, pow as u128, self.length as u128) as i128;
-        self.mul = m_x;
+        if pow == 1 {
+            return Ok(self.clone());
+        }
+        if pow == 0 {
+            return Ok(ActionSet {
+                mul: 1,
+                add: 0,
+                length: self.length,
+            });
+        }
+        if self.mul == 1 {
+            return Ok(ActionSet {
+                mul: 1,
+                add: (self.add * (pow as i128)).rem_euclid(self.length),
+                length: self.length,
+            });
+        }
+        println!("{:?} ^ {}", self, pow);
+        let mul = self.mul.rem_euclid(self.length);
+        let add = self.add.rem_euclid(self.length);
+        println!("{:?} ^ {}", self, pow);
+        let m_x = modular_exponentiate(mul as u128, pow as u128, self.length as u128) as i128;
 
-        let denom = (self.mul - 1) % self.length;
+        println!("Done 1");
+
+        let denom = (mul - 1).rem_euclid(self.length);
         let inv = multiplicative_inverse(denom as u128, self.length as u128);
         let inv = inv.ok_or_else(|| {
             anyhow::anyhow!(
@@ -119,15 +157,18 @@ impl ActionSet {
                 self.length
             )
         })? as i128;
+        println!("Done 2");
 
-        self.add = (((self.add * m_x - self.add) % self.length) * inv) % self.length;
-
-        Ok(())
+        Ok(ActionSet {
+            mul: m_x,
+            add: ((add * m_x - add).rem_euclid(self.length) * inv).rem_euclid(self.length),
+            length: self.length,
+        })
     }
 
     pub fn apply(&self, index: usize) -> usize {
-        let ix = ((index as i128) * self.mul) % self.length;
-        let ix = (ix + self.add) % self.length;
+        let ix = ((index as i128) * self.mul).rem_euclid(self.length);
+        let ix = (ix + self.add).rem_euclid(self.length);
         ix as usize
     }
 }
@@ -197,13 +238,16 @@ pub fn modular_exponentiate(base: u128, exponent: u128, modulus: u128) -> u128 {
     if modulus == 1 {
         return 0;
     }
+
+    println!("{}^{} % {}", base, exponent, modulus);
+    let m = modulus as u128;
     let mut b = base as u128;
     let mut e = exponent as u128;
-    let m = modulus as u128;
     assert!((m - 1) < std::u64::MAX as u128);
 
     let mut result = 1u128;
     while e > 0 {
+        println!("{}^{} % {}", b, e, m);
         if (e % 2) == 1 {
             result = (result * b) % m;
         }
@@ -488,6 +532,56 @@ mod tests {
             deck.shuffle(action)?;
         }
         assert_eq!(deck, expected);
+
+        Ok(())
+    }
+
+    const INSTRUCTIONS5: &str = "\
+    deal into new stack
+    cut -3
+    deal with increment 7
+    cut 7
+    cut -3
+    deal with increment 7
+    cut 3
+    deal with increment 9
+    deal with increment 3
+    cut -1
+    ";
+
+    #[test]
+    fn test_fifth_pow() -> anyhow::Result<()> {
+        let start = Deck::new(0..=12);
+        let mut deck = start.clone();
+        let actions: Vec<Action> = parse_iter(INSTRUCTIONS5.lines())?;
+        let action_set = ActionSet::from_actions(deck.cards.len(), actions.iter().copied());
+        let power = 33;
+
+        let mut successes = 0;
+        for p in 1..=power {
+            println!("Pow: {}", p);
+            for &action in &actions {
+                deck.shuffle(action)?;
+            }
+
+            let set = match action_set.pow(p) {
+                Err(e) => {
+                    println!("Skipping pow {}: {}", p, e);
+                    continue;
+                }
+                Ok(s) => s,
+            };
+            println!("  Actions: {:?}^{} = {:?}", action_set, p, set);
+
+            for (ix, &card) in start.cards.iter().enumerate() {
+                let new_ix = set.apply(ix);
+                assert_eq!(card, deck.cards[new_ix]);
+            }
+            successes += 1;
+        }
+
+        assert!(successes > power / 3, "{} successes / {}", successes, power);
+        assert!(successes > 2, "{} successes / {}", successes, power);
 
         Ok(())
     }
