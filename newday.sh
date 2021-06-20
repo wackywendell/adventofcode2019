@@ -55,7 +55,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::clippy::unnecessary_wraps)]
 #[cfg(test)]
 mod tests {
     use test_env_log::test;
