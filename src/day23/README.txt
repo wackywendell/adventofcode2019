@@ -31,3 +31,7 @@ The NAT also monitors all computers on the network. If all computers have empty 
 Once the network is idle, the NAT sends only the last packet it received to address 0; this will cause the computers on the network to resume activity. In this way, the NAT can throttle power consumption of the network when the ship needs power in other areas.
 
 Monitor packets released to the computer at address 0 by the NAT. What is the first Y value delivered by the NAT to the computer at address 0 twice in a row?
+
+Your puzzle answer was 10982.
+
+Both parts of this puzzle are complete! They provide two gold stars: **

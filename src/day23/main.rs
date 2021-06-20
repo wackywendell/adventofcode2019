@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
@@ -10,51 +10,72 @@ use log::debug;
 use aoc::intcomp::{IntComp, InvalidInstruction, OutputVec, Stopped};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Nic(IntComp);
+pub struct Nic {
+    addr: i64,
+    comp: IntComp,
+    inputs: VecDeque<(i64, i64)>,
+}
 
 impl Nic {
-    pub fn initialize(&mut self, addr: i64) -> Result<(), InvalidInstruction> {
+    pub fn new(mut comp: IntComp, addr: i64) -> Result<Self, InvalidInstruction> {
         let mut output = OutputVec::new();
-        let Nic(ref mut cp) = self;
-        cp.run_to_input(&mut output)?;
+        comp.run_to_input(&mut output)?;
         for v in output.0.drain(..) {
-            println!("Output from {}: {}", addr, v)
+            panic!(
+                "Unexpected output during initialization from {}: {}",
+                addr, v
+            )
         }
-        cp.process_input(addr)?;
-        Ok(())
+        comp.process_input(addr)?;
+        Ok(Nic {
+            addr,
+            comp,
+            inputs: Default::default(),
+        })
     }
 
-    pub fn process_queue<I: IntoIterator<Item = (i64, i64)>>(
-        &mut self,
-        pkts: I,
-    ) -> Result<Vec<(i64, i64, i64)>, InvalidInstruction> {
-        let mut output = OutputVec::new();
-        let Nic(ref mut cp) = self;
-        let state = cp.run_to_input(&mut output)?;
-        assert_eq!(state, Stopped::Input);
+    pub fn queue_packet(&mut self, packet: (i64, i64)) {
+        self.inputs.push_back(packet);
+    }
 
-        for (x, y) in pkts {
-            assert_eq!(cp.run_to_io()?, Stopped::Input);
-            cp.process_input(x)?;
-            assert_eq!(cp.run_to_io()?, Stopped::Input);
-            cp.process_input(y)?;
+    // pub fn fetch_outputs(&mut self) -> Result<Vec<(i64, i64, i64)>, InvalidInstruction> {
+    //     let mut output = OutputVec::new();
+    //     let state = self.comp.run_to_input(&mut output)?;
+    //     assert_eq!(state, Stopped::Input);
+
+    fn process_output(output: OutputVec) -> Vec<(i64, i64, i64)> {
+        if output.0.len() % 3 != 0 {
+            panic!("Unexpected output of length {}", output.0.len());
+        }
+
+        output.0.iter().copied().tuples().collect()
+    }
+
+    pub fn queue_len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    pub fn process(&mut self) -> Result<Vec<(i64, i64, i64)>, InvalidInstruction> {
+        let mut output = OutputVec::new();
+        assert_eq!(self.comp.run_to_input(&mut output)?, Stopped::Input);
+
+        for (x, y) in self.inputs.drain(..) {
+            self.comp.process_input(x)?;
+            assert_eq!(self.comp.run_to_input(&mut output)?, Stopped::Input);
+            self.comp.process_input(y)?;
+            assert_eq!(self.comp.run_to_input(&mut output)?, Stopped::Input);
 
             log::info!("Received: ({}, {})", x, y);
         }
 
-        let mut tuples = output.0.iter().copied().filter(|&n| n != -1).tuples();
-        let mut packets = Vec::new();
+        // Tell it the queue is now empty
+        self.comp.process_input(-1)?;
+        assert_eq!(self.comp.run_to_input(&mut output)?, Stopped::Input);
 
-        loop {
-            if let Some((n, x, y)) = tuples.next() {
-                packets.push((n, x, y));
-                continue;
-            }
-
-            break;
+        let packets = Self::process_output(output);
+        for &(n, x, y) in &packets {
+            log::info!("Sending {} -> {}: ({}, {})", self.addr, n, x, y);
         }
-
-        assert!(tuples.into_buffer().len() == 0);
 
         Ok(packets)
     }
@@ -87,19 +108,65 @@ fn main() -> anyhow::Result<()> {
     let orig_cp: IntComp = str::parse(&line)?;
     let n_cps = 50;
 
-    let mut cps: Vec<IntComp> = (0..n_cps)
-        .map(|n| {
-            let mut cp = orig_cp.clone();
-            let mut output = OutputVec::new();
-            cp.run_to_input(&mut output)?;
-            for v in output.0.drain(..) {
-                println!("Output from {}: {}", n, v)
-            }
-            cp.process_input(n)?;
-            Ok(cp)
-        })
-        .collect::<Result<Vec<IntComp>, InvalidInstruction>>()?;
+    let mut cps: Vec<Nic> = (0..n_cps)
+        .map(|n| Nic::new(orig_cp.clone(), n))
+        .collect::<Result<Vec<Nic>, InvalidInstruction>>()?;
 
+    let mut nat_packet: Option<(i64, i64)> = None;
+    let mut first_nat_packet = None;
+    let mut last_nat_packet = None;
+
+    loop {
+        let mut traffic = 0;
+        for ix in 0..cps.len() {
+            let nic = &mut cps[ix];
+            traffic += nic.queue_len();
+            let out = nic.process()?;
+            traffic += out.len();
+            for (n, x, y) in out {
+                if n == 255 {
+                    log::info!("Sending to NAT {} -> {}: ({}, {})", ix, n, x, y);
+                    nat_packet = Some((x, y));
+                    if first_nat_packet.is_none() {
+                        println!("Got first packet to 255: ({}, {})", x, y);
+                        first_nat_packet = nat_packet;
+                    }
+                    continue;
+                }
+                if n < 0 || n > n_cps {
+                    panic!("Unexpected address: {}", n);
+                }
+
+                log::info!("Sending {} -> {}: ({}, {})", ix, n, x, y);
+
+                let receiver = &mut cps[n as usize];
+                receiver.queue_packet((x, y));
+            }
+        }
+
+        if traffic == 0 {
+            let (x, y) = match nat_packet.take() {
+                None => {
+                    let (x, y) = last_nat_packet.unwrap();
+                    println!("No nat packet left, last sent ({}, {})", x, y);
+                    break;
+                }
+                Some(pkt) => pkt,
+            };
+            if last_nat_packet == Some((x, y)) {
+                println!("NAT sending y={} again", y);
+            }
+            let receiver = &mut cps[0usize];
+
+            log::info!("NAT Sending: ({}, {})", x, y);
+            receiver.queue_packet((x, y));
+            last_nat_packet = Some((x, y));
+        }
+    }
+
+    Ok(())
+}
+/*
     let mut packet_queue: HashMap<usize, VecDeque<(i64, i64)>> =
         (0..n_cps).map(|n| (n as usize, VecDeque::new())).collect();
 
@@ -196,6 +263,7 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+*/
 
 #[cfg(test)]
 mod tests {
