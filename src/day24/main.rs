@@ -27,17 +27,18 @@ impl Area {
             .copied()
             .map(|dn| {
                 let newn = n as isize + dn;
+                #[allow(clippy::if_same_then_else)]
                 if newn < 0 || newn >= self.grid.len() as isize {
-                    println!("Neighbor {}:{}: outside", n, newn);
+                    // println!("Neighbor {}:{}: outside", n, newn);
                     0
                 } else if dn.abs() == 1 && newn / w != n / w {
-                    println!("Neighbor {}:{}: end of row", n, newn);
+                    // println!("Neighbor {}:{}: end of row", n, newn);
                     0
                 } else if self.grid.get(newn as usize).copied() == Some(Space::Bug) {
-                    println!("Neighbor {}:{}: bug", n, newn);
+                    // println!("Neighbor {}:{}: bug", n, newn);
                     1
                 } else {
-                    println!("Neighbor {}:{}: other", n, newn);
+                    // println!("Neighbor {}:{}: other", n, newn);
                     0
                 }
             })
@@ -49,16 +50,16 @@ impl Area {
         for (ix, sp) in next.iter_mut().enumerate() {
             let neighbors = self.count_neighbors(ix);
             if neighbors == 1 || (*sp == Space::Empty && neighbors == 2) {
-                println!(
-                    "  Setting {}:{:?} with {} neighbors to Bug",
-                    ix, *sp, neighbors
-                );
+                // println!(
+                //     "  Setting {}:{:?} with {} neighbors to Bug",
+                //     ix, *sp, neighbors
+                // );
                 *sp = Space::Bug;
             } else {
-                println!(
-                    "  Setting {}:{:?} with {} neighbors to Empty",
-                    ix, *sp, neighbors
-                );
+                // println!(
+                //     "  Setting {}:{:?} with {} neighbors to Empty",
+                //     ix, *sp, neighbors
+                // );
                 *sp = Space::Empty;
             }
         }
