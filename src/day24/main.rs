@@ -220,6 +220,14 @@ impl Area {
         bd
     }
 
+    pub fn bug_count(&self) -> i64 {
+        self.grid
+            .iter()
+            .copied()
+            .map(|n| Area::bug_to_num(n) as i64)
+            .sum()
+    }
+
     pub fn process_until_repeat(&mut self) {
         let mut seen: HashSet<i64> = HashSet::new();
         seen.insert(self.biodiversity());
@@ -333,6 +341,10 @@ impl RecursiveAreas {
             self.areas.insert(highest_level + 1, new_highest);
         }
     }
+
+    pub fn bug_count(&self) -> i64 {
+        self.areas.values().map(Area::bug_count).sum()
+    }
 }
 
 impl fmt::Display for RecursiveAreas {
@@ -367,13 +379,27 @@ fn main() -> anyhow::Result<()> {
     let read = file.read_to_string(&mut s)?;
     log::info!("Read {} bytes", read);
 
-    let mut area = Area::from_str(&s)?;
+    let initial = Area::from_str(&s)?;
+
+    let mut area = initial.clone();
 
     println!("Got Area. Biodiversity: {}", area.biodiversity());
 
     area.process_until_repeat();
 
     println!("After repeat, Biodiversity: {}", area.biodiversity());
+
+    let mut rec = RecursiveAreas::new(initial);
+
+    for _ in 0..200 {
+        rec.next_minute();
+    }
+
+    println!(
+        "After 200 minutes: {} levels, {} bugs",
+        rec.areas.len(),
+        rec.bug_count()
+    );
 
     Ok(())
 }
@@ -698,6 +724,7 @@ mod tests {
         println!("=== Found ===\n{}", rec);
 
         assert_eq!(rec, expected_areas);
+        assert_eq!(rec.bug_count(), 99);
 
         Ok(())
     }
