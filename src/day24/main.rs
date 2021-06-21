@@ -1,6 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+use std::fmt::{self, Write};
 use std::fs::File;
 use std::io::prelude::*;
+use std::iter::FromIterator;
 use std::str::FromStr;
 
 use clap::{App, Arg};
@@ -19,6 +21,11 @@ pub struct Area {
 }
 
 impl Area {
+    fn empty(width: usize) -> Self {
+        let grid = (0..width * width).map(|_| Space::Empty).collect();
+        Area { width, grid }
+    }
+
     fn count_neighbors(&self, n: usize) -> usize {
         let n = n as isize;
         let w = self.width as isize;
@@ -45,6 +52,74 @@ impl Area {
             .sum()
     }
 
+    fn count_local_neighbors(&self, n: usize) -> usize {
+        let n = n as isize;
+        let w = self.width as isize;
+        let middle = w * w / 2;
+        let dns = [-w, -1, w, 1];
+        dns.iter()
+            .copied()
+            .map(|dn| {
+                let newn = n as isize + dn;
+                #[allow(clippy::if_same_then_else)]
+                if newn < 0 || newn >= self.grid.len() as isize {
+                    // println!("Neighbor {}:{}: outside", n, newn);
+                    0
+                } else if newn == middle {
+                    // println!("Neighbor {}:{}: outside", n, newn);
+                    0
+                } else if dn.abs() == 1 && newn / w != n / w {
+                    // println!("Neighbor {}:{}: end of row", n, newn);
+                    0
+                } else if self.grid.get(newn as usize).copied() == Some(Space::Bug) {
+                    // println!("Neighbor {}:{}: bug", n, newn);
+                    1
+                } else {
+                    // println!("Neighbor {}:{}: other", n, newn);
+                    0
+                }
+            })
+            .sum()
+    }
+
+    fn bug_to_num(s: Space) -> usize {
+        if s == Space::Bug {
+            1usize
+        } else {
+            0
+        }
+    }
+
+    // Number of "Bugs" on the edges of the inner box
+    // (top, bottom, left, right)
+    fn middle_counts(&self) -> (usize, usize, usize, usize) {
+        let w = self.width;
+        let middle = w * w / 2;
+        (
+            Area::bug_to_num(self.grid[middle - w]),
+            Area::bug_to_num(self.grid[middle + w]),
+            Area::bug_to_num(self.grid[middle - 1]),
+            Area::bug_to_num(self.grid[middle + 1]),
+        )
+    }
+
+    // Number of "Bugs" on the outer edges
+    // (top, bottom, left, right)
+    fn edge_counts(&self) -> (usize, usize, usize, usize) {
+        fn bug_counter<I: Iterator<Item = usize>>(area: &Area, rng: I) -> usize {
+            rng.map(|ix| Area::bug_to_num(area.grid[ix])).sum::<usize>()
+        }
+
+        let w = self.width;
+        // let top = self.grid[0..w].iter().copied().map(bug_count).sum();
+        let top = bug_counter(&self, 0..w);
+        let bottom = bug_counter(&self, (w * (w - 1))..w * w);
+        let left = bug_counter(&self, (0..w).map(|n| n * w));
+        let right = bug_counter(&self, (0..w).map(|n| (n + 1) * w - 1));
+
+        (top, bottom, left, right)
+    }
+
     pub fn next_minute(&mut self) {
         let mut next = self.grid.clone();
         for (ix, sp) in next.iter_mut().enumerate() {
@@ -65,6 +140,72 @@ impl Area {
         }
 
         self.grid = next;
+    }
+
+    pub fn next_minute_recursive(&self, inner: Option<&Area>, outer: Option<&Area>) -> Area {
+        let mut next = self.grid.clone();
+        let w = self.width;
+        let middle = w * w / 2;
+
+        let (it, ib, il, ir) = inner.map_or((0, 0, 0, 0), Area::edge_counts);
+        let (ot, ob, ol, or) = outer.map_or((0, 0, 0, 0), Area::middle_counts);
+
+        for (ix, sp) in next.iter_mut().enumerate() {
+            if ix == middle {
+                *sp = Space::Empty;
+                continue;
+            }
+
+            let mut neighbors = self.count_local_neighbors(ix);
+            if ix < w {
+                // outer top
+                neighbors += ot;
+            }
+            if ix >= w * w - w {
+                neighbors += ob;
+            }
+            if ix % w == 0 {
+                neighbors += ol;
+            }
+            if ix % w == w - 1 {
+                neighbors += or;
+            }
+            if ix == middle - w {
+                neighbors += it;
+            }
+            if ix == middle + w {
+                neighbors += ib;
+            }
+            if ix == middle - 1 {
+                neighbors += il;
+            }
+            if ix == middle + 1 {
+                neighbors += ir;
+            }
+
+            // let x = ix % w;
+            // let y = ix / w;
+            // println!("  {} ({}, {}): {} neighbors", ix, x, y, neighbors);
+
+            if neighbors == 1 || (*sp == Space::Empty && neighbors == 2) {
+                // println!(
+                //     "  Setting {}:{:?} with {} neighbors to Bug",
+                //     ix, *sp, neighbors
+                // );
+                *sp = Space::Bug;
+            } else {
+                // println!(
+                //     "  Setting {}:{:?} with {} neighbors to Empty",
+                //     ix, *sp, neighbors
+                // );
+                *sp = Space::Empty;
+            }
+        }
+
+        Area {
+            grid: next,
+            width: self.width,
+        }
     }
 
     pub fn biodiversity(&self) -> i64 {
@@ -128,14 +269,81 @@ impl FromStr for Area {
     }
 }
 
+impl fmt::Display for Area {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for row in 0..self.width {
+            for col in 0..self.width {
+                let c = match self.grid[row * self.width + col] {
+                    Space::Bug => '#',
+                    Space::Empty => '.',
+                };
+
+                f.write_char(c)?;
+            }
+
+            f.write_char('\n')?;
+        }
+
+        Ok(())
+    }
+}
+
 fn parse_row(s: &str) -> anyhow::Result<Vec<Space>> {
     s.chars()
         .map(|c| match c {
             '.' => Ok(Space::Empty),
+            '?' => Ok(Space::Empty),
             '#' => Ok(Space::Bug),
             c => Err(anyhow::anyhow!("Could not parse character {}", c)),
         })
         .collect()
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RecursiveAreas {
+    areas: BTreeMap<isize, Area>,
+}
+
+impl RecursiveAreas {
+    pub fn new(area: Area) -> Self {
+        RecursiveAreas {
+            areas: BTreeMap::from_iter(vec![(0, area)]),
+        }
+    }
+
+    pub fn next_minute(&mut self) {
+        let lowest_level = self.areas.keys().next().copied().unwrap();
+        let highest_level = self.areas.keys().next_back().copied().unwrap();
+        let w = self.areas[&lowest_level].width;
+
+        let mut previous = Area::empty(w);
+        let new_lowest = previous.next_minute_recursive(None, Some(&self.areas[&lowest_level]));
+        if new_lowest.grid.iter().any(|&s| s == Space::Bug) {
+            self.areas.insert(lowest_level - 1, new_lowest);
+        }
+
+        for depth in lowest_level..=highest_level {
+            let next = self.areas[&depth]
+                .next_minute_recursive(Some(&previous), self.areas.get(&(depth + 1)));
+            previous = self.areas.insert(depth, next).unwrap();
+        }
+
+        let new_highest = Area::empty(w).next_minute_recursive(Some(&previous), None);
+        if new_highest.grid.iter().any(|&s| s == Space::Bug) {
+            self.areas.insert(highest_level + 1, new_highest);
+        }
+    }
+}
+
+impl fmt::Display for RecursiveAreas {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (&d, a) in &self.areas {
+            writeln!(f, "Depth: {}", d)?;
+            writeln!(f, "{}", a)?;
+        }
+
+        Ok(())
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -173,6 +381,15 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use test_env_log::test;
+
+    fn from_strs(strs: &[(isize, &str)]) -> anyhow::Result<RecursiveAreas> {
+        let areas = strs
+            .iter()
+            .map(|&(d, s)| (Area::from_str(s).map(|a| (d, a))))
+            .collect::<Result<BTreeMap<isize, Area>, anyhow::Error>>()?;
+
+        Ok(RecursiveAreas { areas })
+    }
 
     #[allow(unused_imports)]
     use super::*;
@@ -243,6 +460,208 @@ mod tests {
         area.process_until_repeat();
 
         assert_eq!(area.biodiversity(), 2129920);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_recursive_step() -> anyhow::Result<()> {
+        let area = Area::from_str(STATE1)?;
+        let mut rec = RecursiveAreas::new(area);
+
+        for _ in 0..10 {
+            println!("\n-----\n");
+            rec.next_minute();
+
+            for (&d, a) in &rec.areas {
+                println!("Depth: {}", d);
+                println!("{}", a);
+            }
+        }
+
+        todo!("Unfinished test");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_recursive_steps() -> anyhow::Result<()> {
+        const START_STATES: [(isize, &str); 2] = [
+            (
+                -1,
+                r#"
+                #....
+                .....
+                ..?..
+                .....
+                ....#"#,
+            ),
+            (
+                0,
+                r#"
+                .....
+                ..#..
+                .#?#.
+                ..#..
+                ....."#,
+            ),
+        ];
+
+        const END_STATES: [(isize, &str); 2] = [
+            (
+                -1,
+                r#"
+                .####
+                #...#
+                #.?.#
+                #...#
+                ####."#,
+            ),
+            (
+                0,
+                r#"
+                ..#..
+                .###.
+                ##?##
+                .###.
+                ..#.."#,
+            ),
+        ];
+
+        let mut rec = from_strs(&START_STATES)?;
+
+        rec.next_minute();
+
+        println!("{}", rec);
+
+        let exp = from_strs(&END_STATES)?;
+        assert_eq!(rec, exp);
+
+        Ok(())
+    }
+
+    const REC_STATES: [(isize, &str); 11] = [
+        (
+            -5,
+            r#"
+            ..#..
+            .#.#.
+            ..?.#
+            .#.#.
+            ..#.."#,
+        ),
+        (
+            -4,
+            r#"
+            ...#.
+            ...##
+            ..?..
+            ...##
+            ...#."#,
+        ),
+        (
+            -3,
+            r#"
+            #.#..
+            .#...
+            ..?..
+            .#...
+            #.#.."#,
+        ),
+        (
+            -2,
+            r#"
+            .#.##
+            ....#
+            ..?.#
+            ...##
+            .###."#,
+        ),
+        (
+            -1,
+            r#"
+            #..##
+            ...##
+            ..?..
+            ...#.
+            .####"#,
+        ),
+        (
+            0,
+            r#"
+            .#...
+            .#.##
+            .#?..
+            .....
+            ....."#,
+        ),
+        (
+            1,
+            r#"
+            .##..
+            #..##
+            ..?.#
+            ##.##
+            #####"#,
+        ),
+        (
+            2,
+            r#"
+            ###..
+            ##.#.
+            #.?..
+            .#.##
+            #.#.."#,
+        ),
+        (
+            3,
+            r#"
+            ..###
+            .....
+            #.?..
+            #....
+            #...#"#,
+        ),
+        (
+            4,
+            r#"
+            .###.
+            #..#.
+            #.?..
+            ##.#.
+            ....."#,
+        ),
+        (
+            5,
+            r#"
+            ####.
+            #..#.
+            #.?#.
+            ####.
+            ....."#,
+        ),
+    ];
+
+    #[test]
+    fn test_recursive_example() -> anyhow::Result<()> {
+        let area = Area::from_str(STATE1)?;
+        assert_eq!(area.middle_counts(), (0, 1, 0, 1));
+        assert_eq!(area.edge_counts(), (1, 1, 3, 2));
+
+        let mut rec = RecursiveAreas::new(area);
+
+        for _ in 0..10 {
+            rec.next_minute();
+        }
+
+        assert_eq!(rec.areas.len(), 11);
+
+        let expected_areas = from_strs(&REC_STATES)?;
+
+        println!("=== Expected ===\n{}", expected_areas);
+        println!("=== Found ===\n{}", rec);
+
+        assert_eq!(rec, expected_areas);
 
         Ok(())
     }
