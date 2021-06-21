@@ -317,18 +317,18 @@ impl RecursiveAreas {
         let w = self.areas[&lowest_level].width;
 
         let mut previous = Area::empty(w);
-        let new_lowest = previous.next_minute_recursive(None, Some(&self.areas[&lowest_level]));
+        let new_lowest = previous.next_minute_recursive(Some(&self.areas[&lowest_level]), None);
         if new_lowest.grid.iter().any(|&s| s == Space::Bug) {
             self.areas.insert(lowest_level - 1, new_lowest);
         }
 
         for depth in lowest_level..=highest_level {
             let next = self.areas[&depth]
-                .next_minute_recursive(Some(&previous), self.areas.get(&(depth + 1)));
+                .next_minute_recursive(self.areas.get(&(depth + 1)), Some(&previous));
             previous = self.areas.insert(depth, next).unwrap();
         }
 
-        let new_highest = Area::empty(w).next_minute_recursive(Some(&previous), None);
+        let new_highest = Area::empty(w).next_minute_recursive(None, Some(&previous));
         if new_highest.grid.iter().any(|&s| s == Space::Bug) {
             self.areas.insert(highest_level + 1, new_highest);
         }
@@ -465,30 +465,10 @@ mod tests {
     }
 
     #[test]
-    fn test_recursive_step() -> anyhow::Result<()> {
-        let area = Area::from_str(STATE1)?;
-        let mut rec = RecursiveAreas::new(area);
-
-        for _ in 0..10 {
-            println!("\n-----\n");
-            rec.next_minute();
-
-            for (&d, a) in &rec.areas {
-                println!("Depth: {}", d);
-                println!("{}", a);
-            }
-        }
-
-        todo!("Unfinished test");
-
-        Ok(())
-    }
-
-    #[test]
     fn test_recursive_steps() -> anyhow::Result<()> {
         const START_STATES: [(isize, &str); 2] = [
             (
-                -1,
+                1,
                 r#"
                 #....
                 .....
@@ -509,7 +489,7 @@ mod tests {
 
         const END_STATES: [(isize, &str); 2] = [
             (
-                -1,
+                1,
                 r#"
                 .####
                 #...#
@@ -525,6 +505,62 @@ mod tests {
                 ##?##
                 .###.
                 ..#.."#,
+            ),
+        ];
+
+        let mut rec = from_strs(&START_STATES)?;
+
+        rec.next_minute();
+
+        println!("{}", rec);
+
+        let exp = from_strs(&END_STATES)?;
+        assert_eq!(rec, exp);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_recursive_steps2() -> anyhow::Result<()> {
+        const START_STATES: [(isize, &str); 2] = [
+            (
+                1,
+                r#"
+                .#.#.
+                .....
+                #.?.#
+                .....
+                .#.#."#,
+            ),
+            (
+                0,
+                r#"
+                .....
+                .....
+                ..?..
+                .....
+                ....."#,
+            ),
+        ];
+
+        const END_STATES: [(isize, &str); 2] = [
+            (
+                1,
+                r#"
+                #.#.#
+                ##.##
+                .#?#.
+                ##.##
+                #.#.#"#,
+            ),
+            (
+                0,
+                r#"
+                .....
+                ..#..
+                .#?#.
+                ..#..
+                ....."#,
             ),
         ];
 
