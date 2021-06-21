@@ -571,10 +571,8 @@ fn main() -> anyhow::Result<()> {
     cp.process(Vec::new(), &mut outputs)?
         .expect(Stopped::Halted)?;
 
-    let vs = outputs.0;
-    println!("Found {} Outputs", vs.len());
-    let ascii: Vec<u8> = vs.iter().map(|&n| n as u8).collect();
-    let stringed = String::from_utf8(ascii)?;
+    println!("Found {} Outputs", outputs.0.len());
+    let stringed = outputs.as_string()?;
     println!("{}", stringed);
 
     let grid = Grid::from_str(&stringed)?;
@@ -610,10 +608,8 @@ fn main() -> anyhow::Result<()> {
     let mut input_str = reps.instructions();
     // Disable continuous feed
     input_str.push_str("n\n");
-    let input_instructions: Vec<Value> =
-        input_str.into_bytes().iter().map(|&n| n as Value).collect();
     let mut outputs = OutputVec::new();
-    cp.process(input_instructions, &mut outputs)?
+    cp.process_ascii(&input_str, &mut outputs)?
         .expect(Stopped::Halted)?;
 
     println!("Final Output: {}", outputs.0.back().unwrap());

@@ -209,6 +209,19 @@ pub enum InvalidInstruction {
     UnconsumedInput { consumed: usize, remaining: usize },
 }
 
+#[derive(Fail, Debug)]
+pub enum InvalidUtf8Error {
+    #[error(
+        "Output Out of Range at index {}: value {} out of ASCII range",
+        position,
+        code
+    )]
+    OutOfRange { position: usize, code: i64 },
+
+    #[error("Invalid UTF8")]
+    InvalidUTF8(#[from] std::string::FromUtf8Error),
+}
+
 pub trait Inputter {
     fn input(&mut self) -> Value;
 }
@@ -229,6 +242,24 @@ impl Outputter for OutputVec {
 impl OutputVec {
     pub fn new() -> Self {
         Default::default()
+    }
+
+    pub fn as_string(&self) -> Result<String, InvalidUtf8Error> {
+        let chars: Result<Vec<u8>, InvalidUtf8Error> = self
+            .0
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(position, n)| {
+                if 0 <= n && n <= u8::MAX as i64 {
+                    Ok(n as u8)
+                } else {
+                    Err(InvalidUtf8Error::OutOfRange { position, code: n })
+                }
+            })
+            .collect();
+
+        Ok(String::from_utf8(chars?)?)
     }
 }
 
@@ -497,6 +528,16 @@ impl IntComp {
         }
 
         self.run_to_input(outputter)
+    }
+
+    pub fn process_ascii<O: Outputter>(
+        &mut self,
+        inputs: &str,
+        outputter: &mut O,
+    ) -> Result<Stopped, InvalidInstruction> {
+        let input_instructions: Vec<Value> =
+            inputs.as_bytes().iter().map(|&n| n as Value).collect();
+        self.process(input_instructions, outputter)
     }
 
     pub fn consume_output(&mut self) -> Option<Value> {
