@@ -86,6 +86,10 @@ impl ops::Add<Turn> for Compass {
             (Compass::South, Turn::Straight) => Compass::South,
             (Compass::East, Turn::Straight) => Compass::East,
             (Compass::West, Turn::Straight) => Compass::West,
+            (Compass::North, Turn::Reverse) => Compass::South,
+            (Compass::South, Turn::Reverse) => Compass::North,
+            (Compass::East, Turn::Reverse) => Compass::West,
+            (Compass::West, Turn::Reverse) => Compass::East,
         }
     }
 }
@@ -95,6 +99,7 @@ pub enum Turn {
     Right,
     Straight,
     Left,
+    Reverse,
 }
 
 impl fmt::Display for Turn {
@@ -103,6 +108,7 @@ impl fmt::Display for Turn {
             Turn::Right => "R",
             Turn::Straight => ">",
             Turn::Left => "L",
+            Turn::Reverse => "<",
         };
         f.write_str(c)
     }
@@ -199,6 +205,14 @@ impl<T> Map<T> {
         FN: FnMut(char) -> Result<Token<T>, E>,
     {
         s.chars().map(tokenizer).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.grid.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.grid.is_empty()
     }
 
     pub fn distances<'a, F: FnMut(&'a T) -> bool>(
