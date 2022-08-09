@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::fs::File;
 use std::io::prelude::*;
@@ -17,7 +17,7 @@ use aoc::intcomp::{IntComp, OutputVec, Stopped};
 pub struct Room {
     pub name: String,
     pub message: String,
-    pub items: Vec<String>,
+    pub items: BTreeSet<String>,
     pub directions: Vec<Compass>,
 }
 
@@ -124,7 +124,7 @@ impl FromStr for Room {
             .ok_or_else(|| anyhow!("No line after directions + empty"))?
             .trim();
 
-        let mut items = Vec::new();
+        let mut items = BTreeSet::new();
         if next == "Items here:" {
             next = lines
                 .next()
@@ -132,7 +132,7 @@ impl FromStr for Room {
                 .trim();
             while next.starts_with("- ") {
                 let item = next.trim_start_matches("- ");
-                items.push(item.to_owned());
+                items.insert(item.to_owned());
                 next = lines
                     .next()
                     .ok_or_else(|| anyhow!("No line after items"))?
@@ -182,15 +182,31 @@ impl Explorer {
         Ok((exp, out))
     }
 
+    fn process_input_str(&mut self, output: &mut OutputVec, input: &str) -> anyhow::Result<String> {
+        log::info!("Process 1: '{}'", input);
+        self.comp
+            .process_ascii(input, output)?
+            .expect(Stopped::Input)?;
+        log::info!("Process 2: '\\n'");
+        self.comp
+            .process_ascii("\n", output)?
+            .expect(Stopped::Input)?;
+        log::info!("Processed: '\\n'");
+
+        Ok(output.as_string()?)
+    }
+
     fn process_str(&mut self, input: &str) -> anyhow::Result<String> {
         let mut out = OutputVec::new();
-        self.comp
-            .process_ascii(input, &mut out)?
-            .expect(Stopped::Input)?;
-        self.comp
-            .process_ascii("\n", &mut out)?
-            .expect(Stopped::Input)?;
-        Ok(out.as_string()?)
+
+        match self.process_input_str(&mut out, input) {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                let output = out.as_string()?;
+                log::warn!("process_str failure, output: {}", output);
+                Err(e)
+            }
+        }
     }
 
     pub fn north(&mut self) -> anyhow::Result<String> {
@@ -216,16 +232,19 @@ impl Explorer {
             Compass::South => "south",
             Compass::West => "west",
         };
-        // println!("Taking step {}", input);
+        log::info!("Taking step {}", input);
         let output = self.process_str(input)?;
-        // println!("Took step:\n{}\n", output);
+        log::info!("Took step:\n{}\n", output);
         Room::from_str(&output)
     }
 
     pub fn take(&mut self, item: &str) -> anyhow::Result<String> {
+        log::info!("Taking {}", item);
         let mut s = String::from("take ");
         s.push_str(item);
-        self.process_str(&s)
+        let result = self.process_str(&s)?;
+        log::info!("took {}", item);
+        Ok(result)
     }
 
     pub fn drop(&mut self, item: &str) -> anyhow::Result<String> {
@@ -312,6 +331,29 @@ fn main() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::format_err!("No line found"))??;
 
+    // Pick-up-able:
+    // - food ration
+    // - candy cane
+    // - mouse
+    // - mug
+    // - coin
+    // - ornament
+    // - semiconductor
+    // - mutex
+
+    let to_take: BTreeSet<String> = [
+        "food ration",
+        "candy cane",
+        "mouse",
+        "mug",
+        "coin",
+        "ornament",
+        "semiconductor",
+    ]
+    .iter()
+    .map(|&s| s.to_owned())
+    .collect();
+
     let cp: IntComp = str::parse(&line)?;
     let (mut explorer, initial_output) = Explorer::new(cp)?;
     let room = Room::from_str(&initial_output)?;
@@ -322,7 +364,15 @@ fn main() -> anyhow::Result<()> {
     let mut last = map.add_room(room);
 
     for _ in 0..40 {
-        let room = explorer.step(dir)?;
+        let mut room = explorer.step(dir)?;
+
+        let overlap = to_take.intersection(&room.items);
+
+        for item in overlap {
+            let output = explorer.take(&item)?;
+            println!("Took {}, output {}", item, output);
+        }
+
         let seen = map.contains(&room);
         let key = map.add_room(room);
         map.add_door(last, dir, key);
@@ -330,20 +380,22 @@ fn main() -> anyhow::Result<()> {
         let room = map.get(key);
         if !seen {
             println!("({}) {}: {}", map.len(), dir, room);
-            // } else {
-            //     println!("({}) {}: {}", map.len(), dir, room);
+        } else {
+            log::info!("({}) {}: {}", map.len(), dir, room);
         };
         if room.name == "Security Checkpoint" {
-            dir = dir + Turn::Left + Turn::Left;
-        } else {
-            dir = dir + Turn::Left;
-            for _ in 0..4 {
-                if room.directions.contains(&dir) {
-                    break;
-                }
-                dir = dir + Turn::Right;
-            }
+            println!("inv: {}", explorer.inventory()?);
+            //     dir = dir + Turn::Left + Turn::Left;
+            // } else {
         }
+        dir = dir + Turn::Left;
+        for _ in 0..4 {
+            if room.directions.contains(&dir) {
+                break;
+            }
+            dir = dir + Turn::Right;
+        }
+        // }
         assert!(room.directions.contains(&dir));
     }
     // for &d in &dirs {
