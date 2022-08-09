@@ -698,8 +698,7 @@ mod tests {
         let routine_instrs: Vec<Instruction> = reps
             .main
             .iter()
-            .map(|&id| reps.routines[id as usize].0.as_ref())
-            .flatten()
+            .flat_map(|&id| reps.routines[id as usize].0.as_ref())
             .copied()
             .collect();
         assert_eq!(instrs, routine_instrs);

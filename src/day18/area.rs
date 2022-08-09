@@ -152,7 +152,7 @@ impl Progress4 {
             distance: 0,
             square: location,
             collected: Default::default(),
-            path: location.iter().copied().collect(),
+            path: location.to_vec(),
             current_bot: None,
         };
         for &sq in &location {
@@ -522,7 +522,7 @@ impl Area {
 
         Distances {
             distances,
-            area: &self,
+            area: self,
             shortests: HashMap::new(),
             shortests4: HashMap::new(),
         }

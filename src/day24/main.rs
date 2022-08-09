@@ -112,10 +112,10 @@ impl Area {
 
         let w = self.width;
         // let top = self.grid[0..w].iter().copied().map(bug_count).sum();
-        let top = bug_counter(&self, 0..w);
-        let bottom = bug_counter(&self, (w * (w - 1))..w * w);
-        let left = bug_counter(&self, (0..w).map(|n| n * w));
-        let right = bug_counter(&self, (0..w).map(|n| (n + 1) * w - 1));
+        let top = bug_counter(self, 0..w);
+        let bottom = bug_counter(self, (w * (w - 1))..w * w);
+        let left = bug_counter(self, (0..w).map(|n| n * w));
+        let right = bug_counter(self, (0..w).map(|n| (n + 1) * w - 1));
 
         (top, bottom, left, right)
     }

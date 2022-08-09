@@ -94,8 +94,7 @@ impl FromStr for Reaction {
         };
 
         let output: Operand = str::parse(output)?;
-        let inputs: anyhow::Result<Vec<Operand>> =
-            inputs.split(", ").map(|rs| str::parse(rs)).collect();
+        let inputs: anyhow::Result<Vec<Operand>> = inputs.split(", ").map(str::parse).collect();
 
         Ok(Reaction {
             input: inputs?,
