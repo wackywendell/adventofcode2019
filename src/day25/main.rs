@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry::Occupied;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::fs::File;
@@ -167,19 +168,37 @@ impl FromStr for Room {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub struct Explorer {
     comp: IntComp,
+    room: Key,
+    direction: Compass,
+    carrying: BTreeSet<String>,
+    map: Map,
 }
 
 impl Explorer {
-    fn new(comp: IntComp) -> AnyResult<(Self, String)> {
-        let mut exp = Explorer { comp };
+    fn new(mut comp: IntComp) -> AnyResult<(Self, String)> {
         let mut output = OutputVec::new();
-        exp.comp.run_to_input(&mut output)?;
+        comp.run_to_input(&mut output)?;
         let out = output.as_string()?;
 
+        let room = Room::from_str(&out)?;
+        let mut map: Map = Default::default();
+        let key = map.add_room(room);
+        let exp = Explorer {
+            comp,
+            room: key,
+            direction: Compass::North,
+            carrying: Default::default(),
+            map,
+        };
+
         Ok((exp, out))
+    }
+
+    fn see_room(&self) -> &Room {
+        self.map.get(self.room)
     }
 
     fn process_input_str(&mut self, output: &mut OutputVec, input: &str) -> anyhow::Result<String> {
@@ -209,23 +228,23 @@ impl Explorer {
         }
     }
 
-    pub fn north(&mut self) -> anyhow::Result<String> {
-        self.process_str("north")
-    }
+    // fn north(&mut self) -> anyhow::Result<String> {
+    //     self.process_str("north")
+    // }
 
-    pub fn south(&mut self) -> anyhow::Result<String> {
-        self.process_str("south")
-    }
+    // fn south(&mut self) -> anyhow::Result<String> {
+    //     self.process_str("south")
+    // }
 
-    pub fn east(&mut self) -> anyhow::Result<String> {
-        self.process_str("east")
-    }
+    // fn east(&mut self) -> anyhow::Result<String> {
+    //     self.process_str("east")
+    // }
 
-    pub fn west(&mut self) -> anyhow::Result<String> {
-        self.process_str("west")
-    }
+    // fn west(&mut self) -> anyhow::Result<String> {
+    //     self.process_str("west")
+    // }
 
-    pub fn step(&mut self, direction: Compass) -> anyhow::Result<Room> {
+    pub fn step(&mut self, direction: Compass) -> anyhow::Result<()> {
         let input = match direction {
             Compass::East => "east",
             Compass::North => "north",
@@ -235,7 +254,12 @@ impl Explorer {
         log::info!("Taking step {}", input);
         let output = self.process_str(input)?;
         log::info!("Took step:\n{}\n", output);
-        Room::from_str(&output)
+        let room = Room::from_str(&output)?;
+        let new = self.map.add_room(room);
+        self.map.add_door(self.room, direction, new);
+        self.room = new;
+        self.direction = direction;
+        Ok(())
     }
 
     pub fn take(&mut self, item: &str) -> anyhow::Result<String> {
@@ -243,11 +267,18 @@ impl Explorer {
         let mut s = String::from("take ");
         s.push_str(item);
         let result = self.process_str(&s)?;
+        let new = self.carrying.insert(item.to_string());
+        let room = self.map.rooms.get_mut(self.room).unwrap();
+        room.items.remove(item);
+        assert!(new, "Expected to add {}", item);
         log::info!("took {}", item);
         Ok(result)
     }
 
     pub fn drop(&mut self, item: &str) -> anyhow::Result<String> {
+        let found = self.carrying.remove(item);
+        assert!(!found, "Expected to drop {}", item);
+
         let mut s = String::from("drop ");
         s.push_str(item);
         self.process_str(&s)
@@ -260,11 +291,12 @@ impl Explorer {
 
 type Key = slotmap::DefaultKey;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Map {
     rooms_by_name: HashMap<String, Key>,
     rooms: SlotMap<Key, Room>,
     doors: HashMap<Key, BTreeMap<Compass, Key>>,
+    unvisited: HashMap<Key, BTreeSet<Compass>>,
 }
 
 impl Map {
@@ -274,9 +306,26 @@ impl Map {
         }
 
         let name = room.name.clone();
+        let directions = room.directions.clone();
         let key = self.rooms.insert(room);
         self.rooms_by_name.insert(name, key);
+        let unvisited = self.unvisited.insert(key, Default::default());
+        assert!(unvisited.is_none());
+
+        let unvisited = self.unvisited.get_mut(&key).unwrap();
+        for dir in directions {
+            unvisited.insert(dir);
+        }
         key
+    }
+
+    fn visit(&mut self, room: Key, direction: Compass) {
+        if let Occupied(mut o) = self.unvisited.entry(room) {
+            o.get_mut().remove(&direction);
+            if o.get().is_empty() {
+                o.remove();
+            }
+        }
     }
 
     fn add_door(&mut self, first: Key, direction: Compass, second: Key) {
@@ -288,6 +337,9 @@ impl Map {
             .entry(second)
             .or_default()
             .insert(direction + Turn::Reverse, first);
+
+        self.visit(first, direction);
+        self.visit(second, direction + Turn::Reverse);
     }
 
     fn len(&self) -> usize {
@@ -305,6 +357,49 @@ impl Map {
     fn get(&self, key: Key) -> &Room {
         self.rooms.get(key).unwrap()
     }
+}
+
+fn explore_and_take(explorer: &mut Explorer, items: BTreeSet<String>) -> AnyResult<()> {
+    let start = explorer.room;
+    loop {
+        let mut dir = explorer.direction + Turn::Left;
+        log::info!("Starting {} -> {}", explorer.direction, dir);
+        for _ in 0..4 {
+            log::info!("Checking {} -> {}", explorer.direction, dir);
+            if explorer.see_room().directions.contains(&dir) {
+                break;
+            }
+            dir = dir + Turn::Right;
+        }
+        if explorer.see_room().name == "Security Checkpoint" {
+            println!("inv: {}", explorer.inventory()?);
+            log::info!("Turning around at security checkpoint");
+            dir = explorer.direction + Turn::Reverse;
+        }
+        assert!(explorer.see_room().directions.contains(&dir));
+        explorer.step(dir)?;
+        log::info!(
+            "Stepped {}, entering room {}",
+            dir,
+            explorer.see_room().name
+        );
+
+        let overlap: BTreeSet<String> = items
+            .intersection(&explorer.see_room().items)
+            .map(|s| s.to_owned())
+            .collect();
+
+        for item in overlap {
+            let output = explorer.take(&item)?;
+            println!("Took {}, output: {}", item, output.trim());
+        }
+
+        if explorer.room == start {
+            break;
+        }
+    }
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -363,18 +458,29 @@ fn main() -> anyhow::Result<()> {
     println!("+ ({}) {}: {}", map.len() + 1, dir, room);
     let mut last = map.add_room(room);
 
-    for _ in 0..40 {
-        let mut room = explorer.step(dir)?;
+    explore_and_take(&mut explorer, to_take.clone())?;
+    println!(
+        "Visited, back to start. Unvisited: {}",
+        explorer.map.unvisited.len()
+    );
 
-        let overlap = to_take.intersection(&room.items);
+    return Ok(());
+
+    for _ in 0..40 {
+        explorer.step(dir)?;
+
+        let overlap: BTreeSet<String> = to_take
+            .intersection(&explorer.see_room().items)
+            .map(|s| s.to_owned())
+            .collect();
 
         for item in overlap {
             let output = explorer.take(&item)?;
-            println!("Took {}, output {}", item, output);
+            println!("Took {}, output: {}", item, output.trim());
         }
 
-        let seen = map.contains(&room);
-        let key = map.add_room(room);
+        let seen = map.contains(&explorer.see_room());
+        let key = map.add_room(explorer.see_room().clone());
         map.add_door(last, dir, key);
         last = key;
         let room = map.get(key);
