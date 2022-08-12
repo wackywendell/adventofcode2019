@@ -57,7 +57,7 @@ fn str_to_compass(s: &str) -> AnyResult<Compass> {
         "south" => Compass::South,
         "east" => Compass::East,
         "west" => Compass::West,
-        _ => return Err(anyhow!("'{}' is not a compoass direction")),
+        _ => return Err(anyhow!("'{s}' is not a compoass direction")),
     })
 }
 
@@ -604,7 +604,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use test_env_log::test;
+    use test_log::test;
 
     #[allow(unused_imports)]
     use super::*;

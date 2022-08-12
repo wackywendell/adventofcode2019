@@ -406,7 +406,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use test_env_log::test;
+    use test_log::test;
 
     fn from_strs(strs: &[(isize, &str)]) -> anyhow::Result<RecursiveAreas> {
         let areas = strs

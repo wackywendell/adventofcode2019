@@ -358,7 +358,7 @@ impl<T: Eq + Hash + SquareAttributes> From<Map<T>> for (Grid, Vec<(T, Position)>
 
 #[cfg(test)]
 mod tests {
-    use test_env_log::test;
+    use test_log::test;
 
     use super::*;
 

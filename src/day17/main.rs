@@ -621,7 +621,7 @@ fn main() -> anyhow::Result<()> {
 mod tests {
     use std::fmt::Write;
 
-    use test_env_log::test;
+    use test_log::test;
 
     const EXAMPLE1: &str = r#"
         ..#..........

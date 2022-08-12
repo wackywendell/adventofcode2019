@@ -290,7 +290,7 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use test_env_log::test;
+    use test_log::test;
 
     #[allow(unused_imports)]
     use super::*;
