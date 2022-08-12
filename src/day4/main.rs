@@ -91,14 +91,14 @@ fn main() -> anyhow::Result<()> {
     let matches = App::new("Day 4")
         .arg(
             Arg::with_name("start")
-                .short("s")
+                .short('s')
                 .long("start")
                 .value_name("START")
                 .takes_value(true),
         )
         .arg(
             Arg::with_name("end")
-                .short("e")
+                .short('e')
                 .long("end")
                 .value_name("END")
                 .takes_value(true),
