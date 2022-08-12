@@ -1,5 +1,5 @@
-use std::collections::hash_map::Entry::Occupied;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::fs::File;
 use std::io::prelude::*;
@@ -11,7 +11,7 @@ use clap::{App, Arg};
 use log::debug;
 use slotmap::SlotMap;
 
-use aoc::grid::{Compass, Turn};
+use aoc::grid::{Compass, Position, Turn};
 use aoc::intcomp::{IntComp, OutputVec, Stopped};
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -60,6 +60,10 @@ fn str_to_compass(s: &str) -> AnyResult<Compass> {
         _ => return Err(anyhow!("'{}' is not a compoass direction")),
     })
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("Ejection: {}", _0)]
+struct Ejection(String);
 
 impl FromStr for Room {
     type Err = AnyErr;
@@ -152,6 +156,10 @@ impl FromStr for Room {
                 .trim();
         }
 
+        if next.contains("Alert!") {
+            return Err(Ejection(next.into()).into());
+        }
+
         assert_eq!(
             next, "Command?",
             "Expected line after items to be 'Command?'"
@@ -178,7 +186,7 @@ pub struct Explorer {
 }
 
 impl Explorer {
-    fn new(mut comp: IntComp) -> AnyResult<(Self, String)> {
+    fn new(mut comp: IntComp) -> AnyResult<Self> {
         let mut output = OutputVec::new();
         comp.run_to_input(&mut output)?;
         let out = output.as_string()?;
@@ -194,7 +202,7 @@ impl Explorer {
             map,
         };
 
-        Ok((exp, out))
+        Ok(exp)
     }
 
     fn see_room(&self) -> &Room {
@@ -202,15 +210,15 @@ impl Explorer {
     }
 
     fn process_input_str(&mut self, output: &mut OutputVec, input: &str) -> anyhow::Result<String> {
-        log::info!("Process 1: '{}'", input);
+        log::debug!("Process 1: '{}'", input);
         self.comp
             .process_ascii(input, output)?
             .expect(Stopped::Input)?;
-        log::info!("Process 2: '\\n'");
+        log::debug!("Process 2: '\\n'");
         self.comp
             .process_ascii("\n", output)?
             .expect(Stopped::Input)?;
-        log::info!("Processed: '\\n'");
+        log::debug!("Processed: '\\n'");
 
         Ok(output.as_string()?)
     }
@@ -222,7 +230,7 @@ impl Explorer {
             Ok(v) => Ok(v),
             Err(e) => {
                 let output = out.as_string()?;
-                log::warn!("process_str failure, output: {}", output);
+                log::warn!("process_str failure on input {}, output: {}", input, output);
                 Err(e)
             }
         }
@@ -251,9 +259,9 @@ impl Explorer {
             Compass::South => "south",
             Compass::West => "west",
         };
-        log::info!("Taking step {}", input);
+        log::debug!("Taking step {}", input);
         let output = self.process_str(input)?;
-        log::info!("Took step:\n{}\n", output);
+        log::debug!("Took step:\n{}\n", output);
         let room = Room::from_str(&output)?;
         let new = self.map.add_room(room);
         self.map.add_door(self.room, direction, new);
@@ -263,7 +271,7 @@ impl Explorer {
     }
 
     pub fn take(&mut self, item: &str) -> anyhow::Result<String> {
-        log::info!("Taking {}", item);
+        log::debug!("Taking {}", item);
         let mut s = String::from("take ");
         s.push_str(item);
         let result = self.process_str(&s)?;
@@ -271,7 +279,7 @@ impl Explorer {
         let room = self.map.rooms.get_mut(self.room).unwrap();
         room.items.remove(item);
         assert!(new, "Expected to add {}", item);
-        log::info!("took {}", item);
+        log::debug!("  took {}", item);
         Ok(result)
     }
 
@@ -286,6 +294,67 @@ impl Explorer {
 
     pub fn inventory(&mut self) -> anyhow::Result<String> {
         self.process_str("inv")
+    }
+
+    fn left_wall_step(&mut self) -> AnyResult<()> {
+        let mut dir = self.direction + Turn::Left;
+        for _ in 0..4 {
+            log::debug!("Checking {} -> {}", self.direction, dir);
+            if self.see_room().directions.contains(&dir) {
+                break;
+            }
+            dir = dir + Turn::Right;
+        }
+
+        assert!(self.see_room().directions.contains(&dir));
+        self.step(dir)?;
+
+        log::debug!("Stepped {}, {}", dir, self.see_room().name);
+        Ok(())
+    }
+
+    fn explore_and_take(&mut self, items: &BTreeSet<String>) -> AnyResult<()> {
+        let start = self.room;
+        let mut start_directions = self.see_room().directions.clone();
+        start_directions.reverse();
+        loop {
+            let overlap: BTreeSet<String> = items
+                .intersection(&self.see_room().items)
+                .map(|s| s.to_owned())
+                .collect();
+
+            for item in overlap {
+                let output = self.take(&item)?;
+                // println!("Took {}, output: {}", item, output.trim());
+            }
+
+            if self.see_room().name == "Security Checkpoint" {
+                // println!("inv: {}", self.inventory()?);
+                log::info!("Turning around at security checkpoint");
+                self.step(self.direction + Turn::Reverse)?;
+                continue;
+            }
+
+            if self.room == start {
+                let dir = match start_directions.pop() {
+                    None => return Ok(()),
+                    Some(d) => d,
+                };
+                self.step(dir)?;
+                continue;
+            }
+
+            self.left_wall_step()?;
+        }
+    }
+
+    pub fn goto(&mut self, room: &str) -> AnyResult<()> {
+        loop {
+            if self.see_room().name == room {
+                return Ok(());
+            }
+            self.left_wall_step()?;
+        }
     }
 }
 
@@ -342,60 +411,148 @@ impl Map {
         self.visit(second, direction + Turn::Reverse);
     }
 
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.rooms.len()
     }
 
-    // fn is_empty(&self) -> bool {
-    //     self.rooms.is_empty()
-    // }
+    pub fn is_empty(&self) -> bool {
+        self.rooms.is_empty()
+    }
 
-    fn contains(&self, room: &Room) -> bool {
+    pub fn contains(&self, room: &Room) -> bool {
         self.rooms_by_name.contains_key(&room.name)
     }
 
     fn get(&self, key: Key) -> &Room {
         self.rooms.get(key).unwrap()
     }
+
+    #[allow(dead_code)]
+    fn to_coords(&self, origin: Option<Key>) -> HashMap<Position, Key> {
+        let start = match (origin, self.rooms.iter().next()) {
+            (Some(k), _) => k,
+            (None, None) => return Default::default(),
+            (None, Some((k, _r))) => k,
+        };
+        let mut queue = vec![(Position(0, 0), start)];
+
+        let mut seen = HashSet::new();
+        let mut coords = HashMap::new();
+        while let Some((pos, r)) = queue.pop() {
+            match coords.entry(pos) {
+                Occupied(o) => {
+                    assert!(seen.contains(&r));
+                    assert!(*o.get() == r);
+                }
+                Vacant(v) => {
+                    assert!(!seen.contains(&r));
+                    seen.insert(r);
+                    v.insert(r);
+                    let neighbors = self.doors.get(&r).unwrap();
+                    for (&d, &r) in neighbors {
+                        queue.push((pos + d, r));
+                    }
+                }
+            }
+        }
+
+        coords
+    }
 }
 
-fn explore_and_take(explorer: &mut Explorer, items: BTreeSet<String>) -> AnyResult<()> {
-    let start = explorer.room;
-    loop {
-        let mut dir = explorer.direction + Turn::Left;
-        log::info!("Starting {} -> {}", explorer.direction, dir);
-        for _ in 0..4 {
-            log::info!("Checking {} -> {}", explorer.direction, dir);
-            if explorer.see_room().directions.contains(&dir) {
-                break;
-            }
-            dir = dir + Turn::Right;
-        }
-        if explorer.see_room().name == "Security Checkpoint" {
-            println!("inv: {}", explorer.inventory()?);
-            log::info!("Turning around at security checkpoint");
-            dir = explorer.direction + Turn::Reverse;
-        }
-        assert!(explorer.see_room().directions.contains(&dir));
-        explorer.step(dir)?;
-        log::info!(
-            "Stepped {}, entering room {}",
-            dir,
-            explorer.see_room().name
-        );
+/*
+    NV
+    ||
+    SB KT=GW=PS
+    || ||
+    CQ=HD
+    ||
+    || OB=ST
+    || ||
+ SG HB=EG=WD=AR=SL
+ || ||
+ HW=HC=CO
+       ||
+       SC
 
-        let overlap: BTreeSet<String> = items
-            .intersection(&explorer.see_room().items)
-            .map(|s| s.to_owned())
+AR: Arcade
+CO: Corridor
+CQ: Crew Quarters
+EG: Engineering
+GW: Gift Wrapping Center
+HB: Hull Breach
+HC: Hot Chocolate Fountain
+HD: Holodeck
+HW: Hallway
+KT: Kitchen
+NV: Navigation
+OB: Observatory
+SB: Sick Bay
+SC: Security Checkpoint
+SG: Storage
+SL: Science Lab
+ST: Stables
+WD: Warp Drive Maintenance
+*/
+
+fn try_item_combos(initial_explorer: Explorer, items: Vec<String>) -> AnyResult<Explorer> {
+    let total = 1 << items.len();
+    for n in 0..total {
+        let mut explorer = initial_explorer.clone();
+        let cur_items: BTreeSet<String> = items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, item)| {
+                if (n & (1 << i)) == 0 {
+                    None
+                } else {
+                    Some(item.clone())
+                }
+            })
             .collect();
 
-        for item in overlap {
-            let output = explorer.take(&item)?;
-            println!("Took {}, output: {}", item, output.trim());
-        }
+        log::info!("Items: {:?}", cur_items);
 
-        if explorer.room == start {
-            break;
+        explorer.explore_and_take(&cur_items)?;
+        assert_eq!(explorer.carrying, cur_items);
+        explorer.goto("Security Checkpoint")?;
+        let err = match explorer.left_wall_step() {
+            Ok(()) => return Ok(explorer),
+            Err(e) => e,
+        };
+
+        match err.downcast::<Ejection>() {
+            Ok(e) => log::info!("  {}", e),
+            Err(e) => return Err(e),
+        }
+    }
+
+    Err(anyhow::anyhow!("Got to end, found nothing!"))
+}
+
+#[allow(dead_code)]
+fn explore_around(explorer: &mut Explorer) -> AnyResult<()> {
+    explorer.explore_and_take(&Default::default())?;
+    println!(
+        "Visited, back to start. Unvisited: {} Visited {} rooms with {} doors",
+        explorer.map.unvisited.len(),
+        explorer.map.rooms.len(),
+        explorer.map.doors.len()
+    );
+
+    println!("Items:");
+    for (_, room) in &explorer.map.rooms {
+        for item in &room.items {
+            println!("  - {}: {}", room.name, item);
+        }
+    }
+
+    println!("\nDoors:");
+    for (&ra, doors) in &explorer.map.doors {
+        for (dir, &rb) in doors {
+            let ra = explorer.map.rooms.get(ra).unwrap();
+            let rb = explorer.map.rooms.get(rb).unwrap();
+            println!("  {}: {} -> {}", dir, ra.name, rb.name);
         }
     }
 
@@ -426,88 +583,21 @@ fn main() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::format_err!("No line found"))??;
 
-    // Pick-up-able:
-    // - food ration
-    // - candy cane
-    // - mouse
-    // - mug
-    // - coin
-    // - ornament
-    // - semiconductor
-    // - mutex
-
-    let to_take: BTreeSet<String> = [
-        "food ration",
-        "candy cane",
-        "mouse",
-        "mug",
-        "coin",
-        "ornament",
-        "semiconductor",
-    ]
-    .iter()
-    .map(|&s| s.to_owned())
-    .collect();
-
     let cp: IntComp = str::parse(&line)?;
-    let (mut explorer, initial_output) = Explorer::new(cp)?;
-    let room = Room::from_str(&initial_output)?;
+    let initial_explorer = Explorer::new(cp)?;
 
-    let mut dir = Compass::North;
-    let mut map = Map::default();
-    println!("+ ({}) {}: {}", map.len() + 1, dir, room);
-    let mut last = map.add_room(room);
+    let all_items = vec![
+        // "food ration".to_owned(),
+        "candy cane".to_owned(),
+        "mouse".to_owned(),
+        // "mug".to_owned(),
+        "coin".to_owned(),
+        // "ornament".to_owned(),
+        "semiconductor".to_owned(),
+        // "mutex".to_owned(),
+    ];
 
-    explore_and_take(&mut explorer, to_take.clone())?;
-    println!(
-        "Visited, back to start. Unvisited: {}",
-        explorer.map.unvisited.len()
-    );
-
-    return Ok(());
-
-    for _ in 0..40 {
-        explorer.step(dir)?;
-
-        let overlap: BTreeSet<String> = to_take
-            .intersection(&explorer.see_room().items)
-            .map(|s| s.to_owned())
-            .collect();
-
-        for item in overlap {
-            let output = explorer.take(&item)?;
-            println!("Took {}, output: {}", item, output.trim());
-        }
-
-        let seen = map.contains(&explorer.see_room());
-        let key = map.add_room(explorer.see_room().clone());
-        map.add_door(last, dir, key);
-        last = key;
-        let room = map.get(key);
-        if !seen {
-            println!("({}) {}: {}", map.len(), dir, room);
-        } else {
-            log::info!("({}) {}: {}", map.len(), dir, room);
-        };
-        if room.name == "Security Checkpoint" {
-            println!("inv: {}", explorer.inventory()?);
-            //     dir = dir + Turn::Left + Turn::Left;
-            // } else {
-        }
-        dir = dir + Turn::Left;
-        for _ in 0..4 {
-            if room.directions.contains(&dir) {
-                break;
-            }
-            dir = dir + Turn::Right;
-        }
-        // }
-        assert!(room.directions.contains(&dir));
-    }
-    // for &d in &dirs {
-    //     let room = explorer.step(d)?;
-    //     println!("{}", room);
-    // }
+    try_item_combos(initial_explorer, all_items)?;
 
     Ok(())
 }
