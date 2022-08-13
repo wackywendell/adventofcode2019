@@ -356,7 +356,7 @@ fn main() -> anyhow::Result<()> {
     let matches = App::new("Day 22")
         .arg(
             Arg::with_name("input")
-                .short('i')
+                .short("i")
                 .long("input")
                 .value_name("INPUT")
                 .takes_value(true),
